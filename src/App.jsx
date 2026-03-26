@@ -513,38 +513,53 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
       </div>
 
       {/* Live Connection Status Bar */}
-      <div className={`max-w-3xl mx-auto mb-8 p-4 rounded-xl border transition-all duration-700 ${
-        isSyncing
-          ? 'border-[#BC13FE] shadow-[0_0_20px_rgba(188,19,254,0.3)] bg-cyber-purple-dim animate-pulse-glow'
-          : 'border-[#FFD700]/40 shadow-[0_0_20px_rgba(255,215,0,0.3)] bg-amber-gold-dim'
-      }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {isSyncing ? (
-              <RefreshCw className="w-4 h-4 text-cyber-purple animate-spin" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-[#FFD700]" />
+      {(() => {
+        const isOffline = connectionStatus.includes('OFFLINE');
+        return (
+          <div className={`max-w-3xl mx-auto mb-8 p-4 rounded-xl border transition-all duration-700 ${
+            isSyncing
+              ? 'border-[#BC13FE] shadow-[0_0_20px_rgba(188,19,254,0.3)] bg-cyber-purple-dim animate-pulse-glow'
+              : isOffline
+                ? 'border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.2)] bg-red-500/5'
+                : 'border-[#FFD700]/40 shadow-[0_0_20px_rgba(255,215,0,0.3)] bg-amber-gold-dim'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {isSyncing ? (
+                  <RefreshCw className="w-4 h-4 text-cyber-purple animate-spin" />
+                ) : isOffline ? (
+                  <WifiOff className="w-4 h-4 text-red-400" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-[#FFD700]" />
+                )}
+                <span className={`text-xs font-mono font-bold tracking-[0.15em] transition-colors duration-700 ${
+                  isSyncing ? 'text-cyber-purple' : isOffline ? 'text-red-400' : 'text-[#FFD700]'
+                }`}>
+                  {connectionStatus}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-text-muted">{t.sync.connectionLabel}</span>
+                <div className={`w-2 h-2 rounded-full transition-colors duration-700 ${
+                  isSyncing ? 'bg-cyber-purple animate-pulse-glow' : isOffline ? 'bg-red-400 animate-pulse' : 'bg-[#FFD700]'
+                }`} />
+              </div>
+            </div>
+            {sourceAlphaData && !isSyncing && (
+              <div className={`mt-3 pt-3 border-t flex items-center gap-2 ${
+                isOffline ? 'border-red-500/20' : 'border-[#FFD700]/20'
+              }`}>
+                <Database className={`w-3.5 h-3.5 ${isOffline ? 'text-red-400' : 'text-[#FFD700]'}`} />
+                <span className={`text-[10px] font-mono tracking-wider ${
+                  isOffline ? 'text-red-400/80' : 'text-[#FFD700]/80'
+                }`}>
+                  {isOffline ? 'CACHED PAYLOAD ACTIVE' : t.sync.payloadReceived} — {Object.keys(sourceAlphaData).length} fields ingested
+                </span>
+              </div>
             )}
-            <span className={`text-xs font-mono font-bold tracking-[0.15em] transition-colors duration-700 ${
-              isSyncing ? 'text-cyber-purple' : 'text-[#FFD700]'
-            }`}>
-              {connectionStatus}
-            </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-text-muted">{t.sync.connectionLabel}</span>
-            <div className={`w-2 h-2 rounded-full transition-colors duration-700 ${
-              isSyncing ? 'bg-cyber-purple animate-pulse-glow' : 'bg-[#FFD700]'
-            }`} />
-          </div>
-        </div>
-        {sourceAlphaData && !isSyncing && (
-          <div className="mt-3 pt-3 border-t border-[#FFD700]/20 flex items-center gap-2">
-            <Database className="w-3.5 h-3.5 text-[#FFD700]" />
-            <span className="text-[10px] font-mono text-[#FFD700]/80 tracking-wider">{t.sync.payloadReceived} — {Object.keys(sourceAlphaData).length} fields ingested</span>
-          </div>
-        )}
-      </div>
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Radial Progress */}
@@ -1171,10 +1186,18 @@ export default function App() {
   // Your Proprietary Edge Endpoint
   const EDGE_ENDPOINT = 'https://script.google.com/macros/s/AKfycby5EnpomeA-7z7DyNMj-XEpkvQ0LWZpttVpdFPZvy1hWQORK1XFIidRB1T44KfsXc8f/exec';
 
-  // --- AUTONOMOUS DATA PIPELINE ---
+  // --- AUTONOMOUS DATA PIPELINE (Offline-Aware) ---
   useEffect(() => {
     const synchronizeSourceAlpha = async () => {
       setIsSyncing(true);
+
+      // Check network status before attempting sync
+      if (!navigator.onLine) {
+        setConnectionStatus('OFFLINE: SERVING CACHED INTELLIGENCE (AUTHORITY COMPROMISED)');
+        setIsSyncing(false);
+        return;
+      }
+
       setConnectionStatus(translations[lang]?.sync?.verifying || 'VERIFYING POST-QUANTUM ROUTE...');
 
       try {
@@ -1190,7 +1213,12 @@ export default function App() {
         }
       } catch (error) {
         console.error("Sentinel Engine Error:", error);
-        setConnectionStatus(translations[lang]?.sync?.compromised || 'PIPELINE COMPROMISED. RETRYING...');
+        // If we're offline (detected during fetch failure), the SW may have served cached data
+        if (!navigator.onLine) {
+          setConnectionStatus('OFFLINE: SERVING CACHED INTELLIGENCE (AUTHORITY COMPROMISED)');
+        } else {
+          setConnectionStatus(translations[lang]?.sync?.compromised || 'PIPELINE COMPROMISED. RETRYING...');
+        }
       } finally {
         setIsSyncing(false);
       }
@@ -1198,7 +1226,26 @@ export default function App() {
 
     synchronizeSourceAlpha();
     const syncInterval = setInterval(synchronizeSourceAlpha, 3600000);
-    return () => clearInterval(syncInterval);
+
+    // --- NETWORK STATUS LISTENERS ---
+    const handleOnline = () => {
+      console.log('Sentinel Engine: Network restored. Re-syncing Source Alpha...');
+      synchronizeSourceAlpha();
+    };
+
+    const handleOffline = () => {
+      console.warn('Sentinel Engine: Network severed. Engaging offline cache.');
+      setConnectionStatus('OFFLINE: SERVING CACHED INTELLIGENCE (AUTHORITY COMPROMISED)');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, [lang]);
 
   return (
