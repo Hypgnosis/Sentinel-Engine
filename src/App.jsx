@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Shield, Radar, Terminal, Database, Globe, Zap, Clock, Radio,
-  ChevronRight, Send, AlertTriangle, CheckCircle2, RefreshCw,
+  ChevronRight, AlertTriangle, CheckCircle2, RefreshCw,
   Anchor, Ship, Container, TrendingUp, TrendingDown, Minus,
   Languages, Menu, X, Activity, Eye, Lock, Cpu, Wifi, WifiOff,
   BarChart3, FileText, ArrowUpRight, Sparkles, Hexagon
@@ -205,13 +205,6 @@ const generateTickerItems = () => [
   { id: 10, source: 'Freightos', text: 'Air freight TACA index: $3.42/kg — capacity tightening Q2', trend: 'up', time: '19m ago' },
 ];
 
-const simulatedResponses = {
-  'freight': 'Based on Freightos FBX data (refreshed 12 min ago), current Shanghai-Rotterdam spot rates are $2,180/FEU, up 4.7% WoW. Long-term contract rates via Xeneta show $2,340/FEU with a 6-month lock. Recommend monitoring: Red Sea diversions are adding $400-600/FEU surcharge to Asia-Europe lanes.',
-  'port': 'MarineTraffic data shows Port of Long Beach currently has 38 vessels at anchor with an average wait time of 4.2 days. Terminal utilization at 89%. Compared to last month\'s 92%, congestion is easing. Truck turn times averaging 68 minutes — within acceptable range.',
-  'baltic': 'Baltic Dry Index stands at 1,892 points, up 42 points from yesterday. Capesize market driving gains at $18,420/day. Panamax steady at $12,640/day. Supramax shows weakness at $9,830/day. Year-over-year, the BDI is up 23% — Chinese steel production and Brazilian iron ore exports are primary demand drivers.',
-  'suez': 'Suez Canal Authority reports a 12-hour average transit delay on northbound passages. 47 vessels in queue. Contributing factors: increased security inspections and seasonal traffic volume. Alternative route via Cape of Good Hope adds 10-14 sailing days and approximately $800K in additional fuel costs for standard VLCC.',
-  'default': 'Intelligence query processed. Sentinel Engine has cross-referenced data from Freightos (FBX Index), Xeneta (contract/spot rates), and MarineTraffic (AIS vessel tracking). All data points verified within 60-minute freshness window. Source Alpha synchronization confirmed. For specific insights, query freight rates, port congestion, Baltic Dry Index trends, or canal transit status.',
-};
 
 // ═══════════════════════════════════════════════════
 //  SVG COMPONENTS
@@ -704,78 +697,11 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
 };
 
 // ═══════════════════════════════════════════════════
-//  QUERY TERMINAL
+//  QUERY TERMINAL (NotebookLM Live Integration)
 // ═══════════════════════════════════════════════════
 const QueryTerminal = ({ t }) => {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const scrollRef = useRef(null);
-  const inputRef = useRef(null);
-
-  useEffect(() => {
-    setMessages([
-      { role: 'system', content: `> ${t.terminal.welcome}`, type: 'info' },
-      { role: 'system', content: t.terminal.ready, type: 'ready' },
-    ]);
-  }, [t]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
-
-  const getResponse = useCallback((query) => {
-    const q = query.toLowerCase();
-    if (q.includes('freight') || q.includes('rate') || q.includes('shanghai') || q.includes('tarifa')) return simulatedResponses.freight;
-    if (q.includes('port') || q.includes('long beach') || q.includes('puerto') || q.includes('congestion')) return simulatedResponses.port;
-    if (q.includes('baltic') || q.includes('bdi') || q.includes('index')) return simulatedResponses.baltic;
-    if (q.includes('suez') || q.includes('canal') || q.includes('transit')) return simulatedResponses.suez;
-    return simulatedResponses.default;
-  }, []);
-
-  const handleSubmit = useCallback((e) => {
-    e?.preventDefault();
-    const query = input.trim();
-    if (!query || isTyping) return;
-
-    setMessages(prev => [...prev, { role: 'user', content: query, type: 'query' }]);
-    setInput('');
-    setIsTyping(true);
-
-    // Simulate AI processing
-    setTimeout(() => {
-      const response = getResponse(query);
-      setMessages(prev => [...prev, {
-        role: 'sentinel',
-        content: response,
-        type: 'response',
-        timestamp: new Date().toLocaleTimeString(),
-      }]);
-      setIsTyping(false);
-    }, 1200 + Math.random() * 800);
-  }, [input, isTyping, getResponse]);
-
-  const handleSuggestion = useCallback((suggestion) => {
-    setInput(suggestion);
-    setTimeout(() => {
-      const syntheticEvent = { preventDefault: () => {} };
-      setMessages(prev => [...prev, { role: 'user', content: suggestion, type: 'query' }]);
-      setIsTyping(true);
-      setTimeout(() => {
-        const response = getResponse(suggestion);
-        setMessages(prev => [...prev, {
-          role: 'sentinel',
-          content: response,
-          type: 'response',
-          timestamp: new Date().toLocaleTimeString(),
-        }]);
-        setIsTyping(false);
-      }, 1200 + Math.random() * 800);
-      setInput('');
-    }, 100);
-  }, [getResponse]);
+  // --- CORE AI CONNECTION ---
+  const NOTEBOOK_LM_URL = "https://notebooklm.google.com/notebook/2fc8bf78-3ced-4cea-b95d-b8ca9200bdd2";
 
   return (
     <section id="query-terminal" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
@@ -784,16 +710,16 @@ const QueryTerminal = ({ t }) => {
         <p className="text-sm text-text-secondary font-mono tracking-wider">{t.terminal.subtitle}</p>
       </div>
 
-      <div className="glass-panel-elevated overflow-hidden max-w-4xl mx-auto">
-        {/* Terminal header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-obsidian-border bg-obsidian/50">
+      <div className="glass-panel-elevated overflow-hidden max-w-5xl mx-auto border-[#BC13FE]/30 shadow-[0_0_20px_rgba(188,19,254,0.3)]">
+        {/* Terminal Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-obsidian-border bg-obsidian/80">
           <div className="flex items-center gap-2">
             <div className="flex gap-1.5">
               <div className="w-3 h-3 rounded-full bg-red-500/60" />
               <div className="w-3 h-3 rounded-full bg-amber-400/60" />
               <div className="w-3 h-3 rounded-full bg-green-400/60" />
             </div>
-            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://query-engine/v3.2.1</span>
+            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://notebook-lm-core/v3.2.1</span>
           </div>
           <div className="flex items-center gap-2">
             <Lock className="w-3 h-3 text-green-400" />
@@ -801,87 +727,23 @@ const QueryTerminal = ({ t }) => {
           </div>
         </div>
 
-        {/* Messages */}
-        <div ref={scrollRef} className="h-[420px] overflow-y-auto p-5 space-y-4 font-mono text-sm">
-          {messages.map((msg, i) => (
-            <div key={i} className={`animate-fade-in-up ${
-              msg.type === 'info' ? 'text-cyber-purple text-glow-purple' :
-              msg.type === 'ready' ? 'text-green-400' :
-              msg.type === 'query' ? 'text-amber-gold' :
-              'text-text-primary'
-            }`}>
-              {msg.type === 'query' && (
-                <div className="flex items-start gap-2">
-                  <span className="text-cyber-purple flex-shrink-0">❯</span>
-                  <span>{msg.content}</span>
-                </div>
-              )}
-              {msg.type === 'response' && (
-                <div className="pl-4 border-l-2 border-cyber-purple/30">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Shield className="w-3.5 h-3.5 text-cyber-purple" />
-                    <span className="text-[10px] text-cyber-purple tracking-wider">SENTINEL RESPONSE</span>
-                    <span className="text-[10px] text-text-muted">— {msg.timestamp}</span>
-                  </div>
-                  <p className="text-text-primary/90 leading-relaxed text-[13px]">{msg.content}</p>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3 h-3 text-amber-gold" />
-                    <span className="text-[10px] text-amber-gold">{t.terminal.dataAuthority}</span>
-                  </div>
-                </div>
-              )}
-              {(msg.type === 'info' || msg.type === 'ready') && (
-                <span className="text-[13px]">{msg.content}</span>
-              )}
-            </div>
-          ))}
-
-          {isTyping && (
-            <div className="flex items-center gap-2 text-cyber-purple animate-pulse-glow">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span className="text-[13px]">{t.terminal.thinking}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Suggestion chips */}
-        <div className="px-5 py-3 border-t border-obsidian-border/50 overflow-x-auto">
-          <div className="flex gap-2 min-w-max">
-            {t.terminal.suggestions.map((s, i) => (
-              <button
-                key={i}
-                id={`suggestion-${i}`}
-                onClick={() => handleSuggestion(s)}
-                className="px-3 py-1.5 rounded-full border border-obsidian-border text-[10px] font-mono text-text-muted hover:text-cyber-purple hover:border-cyber-purple/50 transition-all duration-300 whitespace-nowrap flex-shrink-0 cursor-pointer"
-              >
-                {s}
-              </button>
-            ))}
+        {/* Intelligence Hub iFrame Wrapper */}
+        <div className="h-[650px] w-full bg-obsidian-light relative">
+          {/* Ambient Loading State (Visible while iframe loads) */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <RefreshCw className="w-6 h-6 text-cyber-purple animate-spin mb-4" />
+            <span className="text-[11px] font-mono text-cyber-purple tracking-[0.2em] animate-pulse-glow">
+              ESTABLISHING SECURE CONNECTION TO AI CORE...
+            </span>
           </div>
-        </div>
 
-        {/* Input */}
-        <form onSubmit={handleSubmit} className="flex items-center border-t border-obsidian-border bg-obsidian/30">
-          <span className="text-cyber-purple font-mono text-sm pl-5 flex-shrink-0">❯</span>
-          <input
-            ref={inputRef}
-            id="terminal-input"
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={t.terminal.placeholder}
-            className="terminal-input flex-1 bg-transparent text-text-primary font-mono text-sm px-3 py-4 placeholder:text-text-muted"
-            disabled={isTyping}
+          <iframe
+            src={NOTEBOOK_LM_URL}
+            className="relative z-10 w-full h-full border-0"
+            title="Sentinel Engine Intelligence Core"
+            allow="clipboard-write"
           />
-          <button
-            id="terminal-send"
-            type="submit"
-            disabled={isTyping || !input.trim()}
-            className="px-5 py-4 text-cyber-purple hover:text-amber-gold transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </form>
+        </div>
       </div>
     </section>
   );
