@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+@theme {
+  --color-obsidian: #0A0A0A;
+  --color-obsidian-light: #111111;
+  --color-obsidian-mid: #1A1A1A;
+  --color-obsidian-border: #2A2A2A;
+  --color-cyber-purple: #BC13FE;
+  --color-cyber-purple-dim: rgba(188, 19, 254, 0.15);
+  --color-cyber-purple-glow: rgba(188, 19, 254, 0.4);
+  --color-amber-gold: #FFD700;
+  --color-amber-gold-dim: rgba(255, 215, 0, 0.15);
+  --color-amber-gold-glow: rgba(255, 215, 0, 0.4);
+  --color-panel-glass: rgba(17, 17, 17, 0.7);
+  --color-text-primary: #E8E8E8;
+  --color-text-secondary: #888888;
+  --color-text-muted: #555555;
+  --color-success: #00FF88;
+  --color-danger: #FF3366;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ---- Base ---- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-obsidian);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-obsidian);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-obsidian-border);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-cyber-purple);
+}
+
+/* ---- Animations ---- */
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes typewriter-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes radial-fill {
+  0% { stroke-dashoffset: 283; }
+  100% { stroke-dashoffset: 0; }
+}
+
+@keyframes float-ambient {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes glitch-x {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+.animate-ticker { animation: ticker-scroll 40s linear infinite; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+.animate-fade-in-up { animation: fade-in-up 0.6s ease-out forwards; }
+.animate-scan-line { animation: scan-line 8s linear infinite; }
+.animate-typewriter-blink { animation: typewriter-blink 1s step-end infinite; }
+.animate-float { animation: float-ambient 4s ease-in-out infinite; }
+.animate-glitch { animation: glitch-x 0.3s ease-in-out; }
+
+/* ---- Glass Panel ---- */
+.glass-panel {
+  background: var(--color-panel-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-obsidian-border);
+  border-radius: 12px;
+}
+
+.glass-panel-elevated {
+  background: rgba(20, 20, 20, 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--color-obsidian-border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+/* ---- Glow Effects ---- */
+.glow-purple {
+  box-shadow: 0 0 20px rgba(188,19,254,0.3), inset 0 0 20px rgba(188,19,254,0.05);
+}
+
+.glow-gold {
+  box-shadow: 0 0 20px rgba(255,215,0,0.3), inset 0 0 20px rgba(255,215,0,0.05);
+}
+
+.text-glow-purple {
+  text-shadow: 0 0 20px rgba(188,19,254,0.5);
+}
+
+.text-glow-gold {
+  text-shadow: 0 0 20px rgba(255,215,0,0.5);
+}
+
+/* ---- Terminal ---- */
+.terminal-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(188,19,254,0.4);
+}
+
+/* ---- radial progress ---- */
+.radial-progress-bg {
+  stroke: var(--color-obsidian-border);
+}
+.radial-progress-fill {
+  stroke: var(--color-amber-gold);
+  transition: stroke-dashoffset 1s ease-in-out;
+}
