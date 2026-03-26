@@ -21,33 +21,40 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const { request } = event;
+
+  // SKIP non-GET requests entirely (POST to Gemini API, etc.)
+  // The Cache API does not support caching POST requests.
+  if (request.method !== 'GET') return;
+
   // 1. Intercept Edge Endpoint Requests (Network-first, cache fallback)
-  if (event.request.url.includes(EDGE_TARGET)) {
+  if (request.url.includes(EDGE_TARGET)) {
     event.respondWith(
-      fetch(event.request)
+      fetch(request)
         .then((response) => {
           // Network Success: Clone and cache the live payload
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
+            cache.put(request, responseClone);
           });
           return response;
         })
         .catch(() => {
           // Network Failure: Serve the last known cached payload
           console.warn('Sentinel Engine: Network severed. Engaging offline cache.');
-          return caches.match(event.request);
+          return caches.match(request);
         })
     );
   } else {
     // 2. Standard Asset Caching (Stale-While-Revalidate)
     event.respondWith(
-      caches.match(event.request).then((cachedResponse) => {
-        const fetchPromise = fetch(event.request).then((networkResponse) => {
-          // Only cache valid responses (not opaque or errors)
-          if (networkResponse && networkResponse.status === 200) {
+      caches.match(request).then((cachedResponse) => {
+        const fetchPromise = fetch(request).then((networkResponse) => {
+          // Only cache valid, non-opaque responses
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'opaque') {
+            const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, networkResponse.clone());
+              cache.put(request, clone);
             });
           }
           return networkResponse;
