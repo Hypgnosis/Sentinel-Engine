@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Shield, Radar, Terminal, Database, Globe, Zap, Clock, Radio,
-  ChevronRight, AlertTriangle, CheckCircle2, RefreshCw,
+  ChevronRight, Send, AlertTriangle, CheckCircle2, RefreshCw,
   Anchor, Ship, Container, TrendingUp, TrendingDown, Minus,
   Languages, Menu, X, Activity, Eye, Lock, Cpu, Wifi, WifiOff,
   BarChart3, FileText, ArrowUpRight, Sparkles, Hexagon
@@ -697,11 +697,128 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
 };
 
 // ═══════════════════════════════════════════════════
-//  QUERY TERMINAL (NotebookLM Live Integration)
+//  QUERY TERMINAL (Gemini API — Enterprise White-Label)
 // ═══════════════════════════════════════════════════
-const QueryTerminal = ({ t }) => {
-  // --- CORE AI CONNECTION ---
-  const NOTEBOOK_LM_URL = "https://notebooklm.google.com/notebook/2fc8bf78-3ced-4cea-b95d-b8ca9200bdd2";
+const QueryTerminal = ({ t, sourceAlphaData }) => {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const scrollRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // GEMINI API CONFIGURATION
+  const GEMINI_API_KEY = "***REDACTED_API_KEY***";
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+  // Auto-scroll to bottom of chat
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // Initial Boot Sequence
+  useEffect(() => {
+    setMessages([
+      { role: 'system', content: `> ${t.terminal.welcome}`, type: 'info' },
+      { role: 'system', content: t.terminal.ready, type: 'ready' },
+    ]);
+  }, [t]);
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault();
+    const query = input.trim();
+    if (!query || isTyping) return;
+
+    setMessages(prev => [...prev, { role: 'user', content: query, type: 'query' }]);
+    setInput('');
+    setIsTyping(true);
+
+    try {
+      // THE GROUND TRUTH PAYLOAD: Injecting Source Alpha into the LLM Context
+      const groundTruth = sourceAlphaData
+        ? (typeof sourceAlphaData === 'string' ? sourceAlphaData : JSON.stringify(sourceAlphaData, null, 2))
+        : 'No live data currently available. Respond based on general logistics knowledge and state that live data sync is pending.';
+
+      const systemInstruction = `You are the Sentinel Engine, an autonomous market intelligence AI built by High Archytech Solutions. You provide real-time insights on global shipping, freight rates, port congestion, and supply chain analytics.\n\nRULES:\n- Base your answers STRICTLY on the following live data payload (refreshed every 60 minutes from Source Alpha).\n- Do NOT invent data points. If the data doesn't cover the query, say so.\n- Maintain a clinical, authoritative, and concise tone.\n- Use specific numbers, percentages, and trends when available.\n- Format responses with clear structure: use bullet points or short paragraphs.\n\n--- BEGIN SOURCE ALPHA PAYLOAD ---\n${groundTruth}\n--- END SOURCE ALPHA PAYLOAD ---`;
+
+      const payload = {
+        contents: [{ parts: [{ text: query }] }],
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        generationConfig: {
+          temperature: 0.4,
+          topP: 0.8,
+          maxOutputTokens: 1024,
+        },
+      };
+
+      const response = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error(data.error?.message || 'Invalid API response');
+      }
+
+      const aiResponse = data.candidates[0].content.parts[0].text;
+
+      setMessages(prev => [...prev, {
+        role: 'sentinel',
+        content: aiResponse,
+        type: 'response',
+        timestamp: new Date().toLocaleTimeString(),
+      }]);
+    } catch (error) {
+      console.error('Sentinel Engine API Error:', error);
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: `PIPELINE COMPROMISED: ${error.message || 'UNABLE TO REACH AI CORE.'}`,
+        type: 'error',
+      }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleSuggestion = (suggestion) => {
+    setInput(suggestion);
+    setTimeout(() => document.getElementById('terminal-send')?.click(), 100);
+  };
+
+  // --- MARKDOWN-LITE RENDERER ---
+  const renderContent = (text) => {
+    if (!text) return null;
+    const lines = text.split('\n');
+    return lines.map((line, i) => {
+      // Bold
+      let processed = line.replace(/\*\*(.+?)\*\*/g, '<strong class="text-text-primary font-semibold">$1</strong>');
+      // Inline code
+      processed = processed.replace(/`(.+?)`/g, '<code class="px-1.5 py-0.5 rounded bg-cyber-purple-dim text-cyber-purple text-[12px] font-mono">$1</code>');
+      // Bullet points
+      if (/^\s*[-*•]\s/.test(line)) {
+        const content = processed.replace(/^\s*[-*•]\s/, '');
+        return (
+          <div key={i} className="flex items-start gap-2 ml-2 my-0.5">
+            <span className="text-cyber-purple mt-1.5 text-[6px]">●</span>
+            <span className="text-[13px] leading-relaxed" dangerouslySetInnerHTML={{ __html: content }} />
+          </div>
+        );
+      }
+      // Headings (### etc)
+      if (/^#{1,3}\s/.test(line)) {
+        const content = processed.replace(/^#{1,3}\s/, '');
+        return <div key={i} className="text-sm font-semibold text-cyber-purple mt-3 mb-1 tracking-wider" dangerouslySetInnerHTML={{ __html: content }} />;
+      }
+      // Empty line = spacer
+      if (!line.trim()) return <div key={i} className="h-2" />;
+      // Normal text
+      return <p key={i} className="text-[13px] leading-relaxed my-0.5" dangerouslySetInnerHTML={{ __html: processed }} />;
+    });
+  };
 
   return (
     <section id="query-terminal" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
@@ -719,31 +836,131 @@ const QueryTerminal = ({ t }) => {
               <div className="w-3 h-3 rounded-full bg-amber-400/60" />
               <div className="w-3 h-3 rounded-full bg-green-400/60" />
             </div>
-            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://notebook-lm-core/v3.2.1</span>
+            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://gemini-core/v4.0.0</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Lock className="w-3 h-3 text-green-400" />
-            <span className="text-[10px] font-mono text-green-400">{t.security.postQuantum}</span>
+          <div className="flex items-center gap-3">
+            {/* Data freshness indicator */}
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full border ${
+              sourceAlphaData
+                ? 'border-green-500/30 bg-green-500/5'
+                : 'border-amber-400/30 bg-amber-400/5'
+            }`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${
+                sourceAlphaData ? 'bg-green-400 animate-pulse-glow' : 'bg-amber-400 animate-pulse'
+              }`} />
+              <span className={`text-[9px] font-mono tracking-wider ${
+                sourceAlphaData ? 'text-green-400' : 'text-amber-400'
+              }`}>
+                {sourceAlphaData ? 'GROUND TRUTH ACTIVE' : 'AWAITING SYNC'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Lock className="w-3 h-3 text-green-400" />
+              <span className="text-[10px] font-mono text-green-400">{t.security.postQuantum}</span>
+            </div>
           </div>
         </div>
 
-        {/* Intelligence Hub iFrame Wrapper */}
-        <div className="h-[650px] w-full bg-obsidian-light relative">
-          {/* Ambient Loading State (Visible while iframe loads) */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <RefreshCw className="w-6 h-6 text-cyber-purple animate-spin mb-4" />
-            <span className="text-[11px] font-mono text-cyber-purple tracking-[0.2em] animate-pulse-glow">
-              ESTABLISHING SECURE CONNECTION TO AI CORE...
-            </span>
-          </div>
+        {/* Messages Feed */}
+        <div ref={scrollRef} className="h-[480px] overflow-y-auto p-5 space-y-4 font-mono text-sm scroll-smooth">
+          {messages.map((msg, i) => (
+            <div key={i} className={`animate-fade-in-up ${
+              msg.type === 'info' ? 'text-cyber-purple text-glow-purple' :
+              msg.type === 'ready' ? 'text-green-400' :
+              msg.type === 'error' ? 'text-red-400' :
+              msg.type === 'query' ? 'text-amber-gold' :
+              'text-text-primary'
+            }`}>
+              {/* User query */}
+              {msg.type === 'query' && (
+                <div className="flex items-start gap-2">
+                  <span className="text-cyber-purple flex-shrink-0 mt-0.5">❯</span>
+                  <span className="text-[13px]">{msg.content}</span>
+                </div>
+              )}
 
-          <iframe
-            src={NOTEBOOK_LM_URL}
-            className="relative z-10 w-full h-full border-0"
-            title="Sentinel Engine Intelligence Core"
-            allow="clipboard-write"
+              {/* Sentinel AI response */}
+              {msg.type === 'response' && (
+                <div className="pl-4 border-l-2 border-cyber-purple/30">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Shield className="w-3.5 h-3.5 text-cyber-purple" />
+                    <span className="text-[10px] text-cyber-purple tracking-[0.15em] font-semibold">SENTINEL RESPONSE</span>
+                    <span className="text-[10px] text-text-muted">— {msg.timestamp}</span>
+                  </div>
+                  <div className="text-text-primary/90">
+                    {renderContent(msg.content)}
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-obsidian-border/30 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3 h-3 text-amber-gold" />
+                    <span className="text-[10px] text-amber-gold">{t.terminal.dataAuthority}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* System messages */}
+              {(msg.type === 'info' || msg.type === 'ready') && (
+                <span className="text-[13px]">{msg.content}</span>
+              )}
+
+              {/* Error messages */}
+              {msg.type === 'error' && (
+                <div className="flex items-center gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/5">
+                  <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <span className="text-[12px] font-mono">{msg.content}</span>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Typing indicator */}
+          {isTyping && (
+            <div className="flex items-center gap-2 text-cyber-purple animate-pulse-glow">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span className="text-[13px]">{t.terminal.thinking}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Suggestion Chips */}
+        <div className="px-5 py-3 border-t border-obsidian-border/50 overflow-x-auto">
+          <div className="flex gap-2 min-w-max">
+            {t.terminal.suggestions.map((s, i) => (
+              <button
+                key={i}
+                id={`suggestion-${i}`}
+                onClick={() => handleSuggestion(s)}
+                disabled={isTyping}
+                className="px-3 py-1.5 rounded-full border border-obsidian-border text-[10px] font-mono text-text-muted hover:text-cyber-purple hover:border-cyber-purple/50 transition-all duration-300 whitespace-nowrap flex-shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Input Form */}
+        <form onSubmit={handleSubmit} className="flex items-center border-t border-obsidian-border bg-obsidian/30 focus-within:shadow-[0_0_20px_rgba(188,19,254,0.15)] transition-shadow duration-500">
+          <span className="text-cyber-purple font-mono text-sm pl-5 flex-shrink-0">❯</span>
+          <input
+            ref={inputRef}
+            id="terminal-input"
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={t.terminal.placeholder}
+            className="terminal-input flex-1 bg-transparent text-text-primary font-mono text-sm px-3 py-4 placeholder:text-text-muted focus:outline-none"
+            disabled={isTyping}
+            autoComplete="off"
           />
-        </div>
+          <button
+            id="terminal-send"
+            type="submit"
+            disabled={isTyping || !input.trim()}
+            className="px-5 py-4 text-cyber-purple hover:text-amber-gold transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
       </div>
     </section>
   );
@@ -928,7 +1145,7 @@ export default function App() {
         )}
 
         {activeSection === 'terminal' && (
-          <QueryTerminal t={t} />
+          <QueryTerminal t={t} sourceAlphaData={sourceAlphaData} />
         )}
 
         {activeSection === 'sync' && (
