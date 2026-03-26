@@ -4,7 +4,8 @@ import {
   ChevronRight, Send, AlertTriangle, CheckCircle2, RefreshCw,
   Anchor, Ship, Container, TrendingUp, TrendingDown, Minus,
   Languages, Menu, X, Activity, Eye, Lock, Cpu, Wifi, WifiOff,
-  BarChart3, FileText, ArrowUpRight, Sparkles, Hexagon
+  BarChart3, FileText, ArrowUpRight, Sparkles, Hexagon,
+  Volume2, VolumeX
 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════
@@ -703,12 +704,39 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isVoiceActive, setIsVoiceActive] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
   // GEMINI API CONFIGURATION
   const GEMINI_API_KEY = "***REDACTED_API_KEY***";
   const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+  // --- VOICE PROTOCOL ---
+  const speakResponse = (text) => {
+    if (!isVoiceActive || !('speechSynthesis' in window)) return;
+
+    window.speechSynthesis.cancel();
+
+    // Clean markdown symbols before speaking
+    const cleanText = text.replace(/[*#_`~]/g, '');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.05;
+    utterance.pitch = 0.9;
+
+    // Attempt to find a premium English voice
+    const voices = window.speechSynthesis.getVoices();
+    const systemVoice = voices.find(v => v.name.includes('Google') || v.name.includes('Samantha') || v.lang === 'en-GB');
+    if (systemVoice) utterance.voice = systemVoice;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
 
   // Auto-scroll to bottom of chat
   useEffect(() => {
@@ -772,6 +800,9 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
         type: 'response',
         timestamp: new Date().toLocaleTimeString(),
       }]);
+
+      // Engage Voice Protocol
+      speakResponse(aiResponse);
     } catch (error) {
       console.error('Sentinel Engine API Error:', error);
       setMessages(prev => [...prev, {
@@ -827,7 +858,11 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
         <p className="text-sm text-text-secondary font-mono tracking-wider">{t.terminal.subtitle}</p>
       </div>
 
-      <div className="glass-panel-elevated overflow-hidden max-w-5xl mx-auto border-[#BC13FE]/30 shadow-[0_0_20px_rgba(188,19,254,0.3)]">
+      <div className={`glass-panel-elevated overflow-hidden max-w-5xl mx-auto border-[#BC13FE]/30 transition-shadow duration-700 ${
+        isSpeaking
+          ? 'shadow-[0_0_30px_rgba(188,19,254,0.4)]'
+          : 'shadow-[0_0_20px_rgba(188,19,254,0.3)]'
+      }`}>
         {/* Terminal Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-obsidian-border bg-obsidian/80">
           <div className="flex items-center gap-2">
@@ -837,6 +872,23 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
               <div className="w-3 h-3 rounded-full bg-green-400/60" />
             </div>
             <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://gemini-core/v4.0.0</span>
+
+            {/* Soundwave Visualizer */}
+            {isSpeaking && (
+              <div className="flex items-end gap-[3px] h-4 ml-3" aria-label="Voice active">
+                {[1, 2, 3, 4, 5].map((bar) => (
+                  <div
+                    key={bar}
+                    className="w-[3px] rounded-full bg-[#BC13FE]"
+                    style={{
+                      animation: `sentinel-soundwave 0.8s ease-in-out infinite alternate`,
+                      animationDelay: `${bar * 0.1}s`,
+                      height: '4px',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3">
             {/* Data freshness indicator */}
@@ -854,6 +906,35 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
                 {sourceAlphaData ? 'GROUND TRUTH ACTIVE' : 'AWAITING SYNC'}
               </span>
             </div>
+
+            {/* Voice Protocol Toggle */}
+            <button
+              id="voice-toggle"
+              onClick={() => {
+                if (isSpeaking) {
+                  window.speechSynthesis.cancel();
+                  setIsSpeaking(false);
+                }
+                setIsVoiceActive(prev => !prev);
+              }}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all duration-300 cursor-pointer ${
+                isVoiceActive
+                  ? 'border-cyber-purple/40 bg-cyber-purple-dim hover:border-cyber-purple/60'
+                  : 'border-obsidian-border bg-obsidian-mid/50 hover:border-text-muted'
+              }`}
+              title={isVoiceActive ? 'Mute Voice Protocol' : 'Enable Voice Protocol'}
+            >
+              {isVoiceActive
+                ? <Volume2 className={`w-3 h-3 ${isSpeaking ? 'text-cyber-purple animate-pulse' : 'text-cyber-purple'}`} />
+                : <VolumeX className="w-3 h-3 text-text-muted" />
+              }
+              <span className={`text-[9px] font-mono tracking-wider ${
+                isVoiceActive ? 'text-cyber-purple' : 'text-text-muted'
+              }`}>
+                {isVoiceActive ? 'VOICE' : 'MUTED'}
+              </span>
+            </button>
+
             <div className="flex items-center gap-1.5">
               <Lock className="w-3 h-3 text-green-400" />
               <span className="text-[10px] font-mono text-green-400">{t.security.postQuantum}</span>
