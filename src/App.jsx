@@ -693,7 +693,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
 
   // GEMINI API CONFIGURATION (key loaded from .env — never committed to repo)
   const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
   // --- VOICE PROTOCOL ---
   const speakResponse = (text) => {

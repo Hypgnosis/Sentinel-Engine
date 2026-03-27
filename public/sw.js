@@ -27,6 +27,11 @@ self.addEventListener('fetch', (event) => {
   // The Cache API does not support caching POST requests.
   if (request.method !== 'GET') return;
 
+  // SKIP non-http(s) schemes (chrome-extension://, moz-extension://, etc.)
+  // The Cache API only supports http/https — attempting to cache other schemes throws TypeError.
+  const url = new URL(request.url);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
   // 1. Intercept Edge Endpoint Requests (Network-first, cache fallback)
   if (request.url.includes(EDGE_TARGET)) {
     event.respondWith(
