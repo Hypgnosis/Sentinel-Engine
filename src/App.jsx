@@ -834,19 +834,22 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
   };
 
   return (
-    <section id="query-terminal" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-      <div className="text-center mb-12">
+    <section id="query-terminal" className="w-full px-4 sm:px-6 lg:px-8 py-6" style={{ minHeight: 'calc(100vh - 4rem)' }}>
+      {/* Header */}
+      <div className="text-center mb-6 max-w-4xl mx-auto">
         <h2 className="text-2xl sm:text-3xl font-bold font-mono mb-2 text-text-primary">{t.terminal.title}</h2>
         <p className="text-sm text-text-secondary font-mono tracking-wider">{t.terminal.subtitle}</p>
       </div>
 
-      <div className={`glass-panel-elevated overflow-hidden max-w-5xl mx-auto border-[#BC13FE]/30 transition-shadow duration-700 ${
+      {/* Terminal Container — Full width with max-width for readability */}
+      <div className={`glass-panel-elevated overflow-hidden max-w-6xl mx-auto border-[#BC13FE]/30 transition-shadow duration-700 flex flex-col ${
         isSpeaking
-          ? 'shadow-[0_0_30px_rgba(188,19,254,0.4)]'
-          : 'shadow-[0_0_20px_rgba(188,19,254,0.3)]'
-      }`}>
-        {/* Terminal Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-obsidian-border bg-obsidian/80">
+          ? 'shadow-[0_0_40px_rgba(188,19,254,0.5)]'
+          : 'shadow-[0_0_20px_rgba(188,19,254,0.2)]'
+      }`} style={{ height: 'calc(100vh - 12rem)', minHeight: '500px' }}>
+
+        {/* Terminal Header Bar */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-obsidian-border bg-obsidian/80 flex-shrink-0">
           <div className="flex items-center gap-2">
             <div className="flex gap-1.5">
               <div className="w-3 h-3 rounded-full bg-red-500/60" />
@@ -924,52 +927,53 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
           </div>
         </div>
 
-        {/* Messages Feed */}
-        <div ref={scrollRef} className="h-[480px] overflow-y-auto p-5 space-y-4 font-mono text-sm scroll-smooth">
+        {/* ═══ Messages Feed — Expanded to fill available space ═══ */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5 font-mono scroll-smooth" style={{ minHeight: 0 }}>
           {messages.map((msg, i) => (
-            <div key={i} className={`animate-fade-in-up ${
-              msg.type === 'info' ? 'text-cyber-purple text-glow-purple' :
-              msg.type === 'ready' ? 'text-green-400' :
-              msg.type === 'error' ? 'text-red-400' :
-              msg.type === 'query' ? 'text-amber-gold' :
-              'text-text-primary'
-            }`}>
-              {/* User query */}
+            <div key={i} className="animate-fade-in-up">
+              {/* User query — right-aligned bubble */}
               {msg.type === 'query' && (
-                <div className="flex items-start gap-2">
-                  <span className="text-cyber-purple flex-shrink-0 mt-0.5">❯</span>
-                  <span className="text-[13px]">{msg.content}</span>
+                <div className="flex justify-end">
+                  <div className="max-w-[75%] px-5 py-3.5 rounded-2xl rounded-br-md bg-gradient-to-br from-cyber-purple/20 to-cyber-purple/10 border border-cyber-purple/30">
+                    <p className="text-sm text-text-primary leading-relaxed">{msg.content}</p>
+                  </div>
                 </div>
               )}
 
-              {/* Sentinel AI response */}
+              {/* Sentinel AI response — left-aligned with accent bar */}
               {msg.type === 'response' && (
-                <div className="pl-4 border-l-2 border-cyber-purple/30">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Shield className="w-3.5 h-3.5 text-cyber-purple" />
-                    <span className="text-[10px] text-cyber-purple tracking-[0.15em] font-semibold">SENTINEL RESPONSE</span>
-                    <span className="text-[10px] text-text-muted">— {msg.timestamp}</span>
-                  </div>
-                  <div className="text-text-primary/90">
-                    {renderContent(msg.content)}
-                  </div>
-                  <div className="mt-3 pt-2 border-t border-obsidian-border/30 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3 h-3 text-amber-gold" />
-                    <span className="text-[10px] text-amber-gold">{t.terminal.dataAuthority}</span>
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] pl-5 pr-6 py-4 border-l-[3px] border-cyber-purple/60 bg-obsidian-mid/30 rounded-r-xl">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Shield className="w-4 h-4 text-cyber-purple" />
+                      <span className="text-[11px] text-cyber-purple tracking-[0.15em] font-semibold">SENTINEL RESPONSE</span>
+                      <span className="text-[10px] text-text-muted ml-auto">— {msg.timestamp}</span>
+                    </div>
+                    <div className="text-text-primary/90 text-sm leading-relaxed">
+                      {renderContent(msg.content)}
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-obsidian-border/30 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-gold" />
+                      <span className="text-[10px] text-amber-gold">{t.terminal.dataAuthority}</span>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* System messages */}
+              {/* System messages — centered subtle text */}
               {(msg.type === 'info' || msg.type === 'ready') && (
-                <span className="text-[13px]">{msg.content}</span>
+                <div className="text-center py-1">
+                  <span className={`text-xs ${msg.type === 'info' ? 'text-cyber-purple text-glow-purple' : 'text-green-400'}`}>
+                    {msg.content}
+                  </span>
+                </div>
               )}
 
               {/* Error messages */}
               {msg.type === 'error' && (
-                <div className="flex items-center gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/5">
-                  <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                  <span className="text-[12px] font-mono">{msg.content}</span>
+                <div className="flex items-center gap-3 p-4 rounded-xl border border-red-500/30 bg-red-500/5 max-w-[85%]">
+                  <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                  <span className="text-xs font-mono text-red-400">{msg.content}</span>
                 </div>
               )}
             </div>
@@ -977,23 +981,23 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
 
           {/* Typing indicator */}
           {isTyping && (
-            <div className="flex items-center gap-2 text-cyber-purple animate-pulse-glow">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span className="text-[13px]">{t.terminal.thinking}</span>
+            <div className="flex items-center gap-3 text-cyber-purple animate-pulse-glow py-2">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span className="text-sm">{t.terminal.thinking}</span>
             </div>
           )}
         </div>
 
-        {/* Suggestion Chips */}
-        <div className="px-5 py-3 border-t border-obsidian-border/50 overflow-x-auto">
-          <div className="flex gap-2 min-w-max">
+        {/* ═══ Suggestion Chips — Wrap grid for visibility ═══ */}
+        <div className="px-6 py-3 border-t border-obsidian-border/50 flex-shrink-0">
+          <div className="flex flex-wrap gap-2">
             {t.terminal.suggestions.map((s, i) => (
               <button
                 key={i}
                 id={`suggestion-${i}`}
                 onClick={() => handleSuggestion(s)}
                 disabled={isTyping}
-                className="px-3 py-1.5 rounded-full border border-obsidian-border text-[10px] font-mono text-text-muted hover:text-cyber-purple hover:border-cyber-purple/50 transition-all duration-300 whitespace-nowrap flex-shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                className="px-4 py-2 rounded-full border border-obsidian-border text-[11px] font-mono text-text-muted hover:text-cyber-purple hover:border-cyber-purple/50 hover:bg-cyber-purple-dim transition-all duration-300 whitespace-nowrap cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {s}
               </button>
@@ -1001,27 +1005,36 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
           </div>
         </div>
 
-        {/* Input Form */}
-        <form onSubmit={handleSubmit} className="flex items-center border-t border-obsidian-border bg-obsidian/30 focus-within:shadow-[0_0_20px_rgba(188,19,254,0.15)] transition-shadow duration-500">
-          <span className="text-cyber-purple font-mono text-sm pl-5 flex-shrink-0">❯</span>
-          <input
-            ref={inputRef}
-            id="terminal-input"
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={t.terminal.placeholder}
-            className="terminal-input flex-1 bg-transparent text-text-primary font-mono text-sm px-3 py-4 placeholder:text-text-muted focus:outline-none"
-            disabled={isTyping}
-            autoComplete="off"
-          />
+        {/* ═══ Input Area — Spacious textarea with prominent send ═══ */}
+        <form onSubmit={handleSubmit} className="flex items-end gap-3 border-t border-obsidian-border bg-obsidian/40 px-5 py-4 focus-within:shadow-[0_0_30px_rgba(188,19,254,0.15)] transition-shadow duration-500 flex-shrink-0">
+          <div className="flex-1 relative">
+            <textarea
+              ref={inputRef}
+              id="terminal-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
+              placeholder={t.terminal.placeholder}
+              className="w-full bg-obsidian-mid/50 text-text-primary font-mono text-sm px-5 py-4 rounded-xl border border-obsidian-border focus:border-cyber-purple/50 focus:outline-none placeholder:text-text-muted resize-none transition-all duration-300"
+              rows={2}
+              disabled={isTyping}
+              autoComplete="off"
+              style={{ maxHeight: '120px' }}
+            />
+            <span className="absolute bottom-2 right-3 text-[9px] font-mono text-text-muted/50">Shift+Enter for new line</span>
+          </div>
           <button
             id="terminal-send"
             type="submit"
             disabled={isTyping || !input.trim()}
-            className="px-5 py-4 text-cyber-purple hover:text-amber-gold transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+            className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-cyber-purple to-cyber-purple/70 text-white hover:shadow-[0_0_20px_rgba(188,19,254,0.5)] transition-all duration-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
           >
-            <Send className="w-4 h-4" />
+            <Send className="w-5 h-5" />
           </button>
         </form>
       </div>
