@@ -20,9 +20,9 @@ const translations = {
     hero: {
       title: 'The Future of Logistics Intelligence',
       subtitle: 'Post-quantum secured. Middleware-free. Autonomous.',
-      description: 'Sentinel Engine replaces static data silos with a real-time intelligence pipeline powered by edge infrastructure. Zero external middleware. Zero latency compromise.',
+      description: 'Sentinel Engine by High ArchyTech Solutions replaces static data silos with a real-time intelligence pipeline powered by edge infrastructure. Zero external middleware. Zero latency compromise.',
       cta: 'Initialize Terminal',
-      ctaSecondary: 'View Architecture',
+      ctaSecondary: 'View Sync Status',
     },
     stats: {
       activePorts: 'Active Ports Monitored',
@@ -36,7 +36,7 @@ const translations = {
     },
     sync: {
       title: 'Source Alpha Sync',
-      subtitle: 'NotebookLM Data Refresh Cycle',
+      subtitle: 'Autonomous Data Refresh Cycle by High ArchyTech Solutions',
       status: 'Synchronized',
       lastSync: 'Last Sync',
       nextSync: 'Next Sync',
@@ -79,18 +79,7 @@ const translations = {
       connection: 'Connection',
       secure: 'Secure Channel',
     },
-    architecture: {
-      title: 'System Architecture',
-      subtitle: 'Middleware-Free Intelligence Pipeline',
-      layers: [
-        { name: 'Data Sources', desc: 'Freightos, Xeneta, MarineTraffic APIs' },
-        { name: 'Apps Script Sanitizer', desc: 'Autonomous data cleansing & normalization' },
-        { name: 'Source Alpha', desc: 'Centralized Google Doc (Markdown headers)' },
-        { name: 'NotebookLM Ingestion', desc: '60-min refresh cycle synchronization' },
-        { name: 'Sentinel Engine', desc: 'Edge-compute intelligence layer' },
-        { name: 'Client Interface', desc: 'React PWA with post-quantum TLS' },
-      ],
-    },
+
     footer: {
       brand: 'High Archytech Solutions',
       tagline: 'We don\'t build websites. We build autonomous systems.',
@@ -108,9 +97,9 @@ const translations = {
     hero: {
       title: 'El Futuro de la Inteligencia Logística',
       subtitle: 'Seguridad post-cuántica. Sin middleware. Autónomo.',
-      description: 'Sentinel Engine reemplaza silos de datos estáticos con un pipeline de inteligencia en tiempo real impulsado por infraestructura edge. Cero middleware externo. Cero compromiso de latencia.',
+      description: 'Sentinel Engine por High ArchyTech Solutions reemplaza silos de datos estáticos con un pipeline de inteligencia en tiempo real impulsado por infraestructura edge. Cero middleware externo. Cero compromiso de latencia.',
       cta: 'Inicializar Terminal',
-      ctaSecondary: 'Ver Arquitectura',
+      ctaSecondary: 'Ver Estado de Sync',
     },
     stats: {
       activePorts: 'Puertos Activos Monitoreados',
@@ -124,7 +113,7 @@ const translations = {
     },
     sync: {
       title: 'Sync Source Alpha',
-      subtitle: 'Ciclo de Actualización NotebookLM',
+      subtitle: 'Ciclo de Actualización Autónomo por High ArchyTech Solutions',
       status: 'Sincronizado',
       lastSync: 'Última Sincronización',
       nextSync: 'Próxima Sincronización',
@@ -167,18 +156,7 @@ const translations = {
       connection: 'Conexión',
       secure: 'Canal Seguro',
     },
-    architecture: {
-      title: 'Arquitectura del Sistema',
-      subtitle: 'Pipeline de Inteligencia Sin Middleware',
-      layers: [
-        { name: 'Fuentes de Datos', desc: 'APIs de Freightos, Xeneta, MarineTraffic' },
-        { name: 'Sanitizador Apps Script', desc: 'Limpieza y normalización autónoma de datos' },
-        { name: 'Source Alpha', desc: 'Google Doc Centralizado (headers Markdown)' },
-        { name: 'Ingesta NotebookLM', desc: 'Sincronización ciclo de 60 min' },
-        { name: 'Sentinel Engine', desc: 'Capa de inteligencia edge-compute' },
-        { name: 'Interfaz Cliente', desc: 'React PWA con TLS post-cuántico' },
-      ],
-    },
+
     footer: {
       brand: 'High Archytech Solutions',
       tagline: 'No construimos sitios web. Construimos sistemas autónomos.',
@@ -211,18 +189,7 @@ const generateTickerItems = () => [
 //  SVG COMPONENTS
 // ═══════════════════════════════════════════════════
 const SentinelLogo = ({ className = '' }) => (
-  <svg viewBox="0 0 48 48" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#BC13FE" />
-        <stop offset="100%" stopColor="#FFD700" />
-      </linearGradient>
-    </defs>
-    <path d="M24 4 L44 16 L44 32 L24 44 L4 32 L4 16 Z" stroke="url(#logoGrad)" strokeWidth="2" fill="none" />
-    <path d="M24 12 L36 19 L36 33 L24 40 L12 33 L12 19 Z" stroke="url(#logoGrad)" strokeWidth="1.5" fill="none" opacity="0.5" />
-    <circle cx="24" cy="24" r="6" fill="url(#logoGrad)" opacity="0.8" />
-    <circle cx="24" cy="24" r="2.5" fill="#0A0A0A" />
-  </svg>
+  <img src="/ha-logo.png" alt="High ArchyTech Solutions" className={`${className} object-contain`} />
 );
 
 const HighArchyLogo = ({ className = '' }) => (
@@ -304,7 +271,7 @@ const Navigation = ({ t, lang, setLang, activeSection, setActiveSection }) => {
         <div className="flex items-center justify-between h-16">
           {/* Brand */}
           <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActiveSection('dashboard')}>
-            <SentinelLogo className="w-9 h-9 transition-transform duration-500 group-hover:rotate-[60deg]" />
+            <SentinelLogo className="w-10 h-10 rounded-lg transition-transform duration-500 group-hover:scale-110" />
             <div className="flex flex-col">
               <span className="text-sm font-bold tracking-[0.3em] text-text-primary font-mono">{t.brand}</span>
               <span className="text-[9px] text-text-muted tracking-[0.15em] uppercase">{t.brandSub}</span>
@@ -457,7 +424,7 @@ const HeroSection = ({ t, setActiveSection }) => (
           </button>
           <button
             id="cta-secondary"
-            onClick={() => setActiveSection('intel')}
+            onClick={() => setActiveSection('sync')}
             className="flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-obsidian-border text-text-secondary font-mono text-sm tracking-wider hover:border-cyber-purple/50 hover:text-text-primary transition-all duration-300 cursor-pointer"
           >
             <Eye className="w-4 h-4" />
@@ -478,7 +445,7 @@ const HeroSection = ({ t, setActiveSection }) => (
 );
 
 // ═══════════════════════════════════════════════════
-//  NOTEBOOKLM SYNC TRACKER
+//  SOURCE ALPHA SYNC TRACKER
 // ═══════════════════════════════════════════════════
 const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
   const [progress, setProgress] = useState(0);
@@ -726,7 +693,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
 
   // GEMINI API CONFIGURATION (key loaded from .env — never committed to repo)
   const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
 
   // --- VOICE PROTOCOL ---
   const speakResponse = (text) => {
@@ -1062,72 +1029,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
   );
 };
 
-// ═══════════════════════════════════════════════════
-//  ARCHITECTURE SECTION
-// ═══════════════════════════════════════════════════
-const ArchitectureSection = ({ t }) => (
-  <section id="architecture-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-    <div className="text-center mb-12">
-      <h2 className="text-2xl sm:text-3xl font-bold font-mono mb-2 text-text-primary">{t.architecture.title}</h2>
-      <p className="text-sm text-text-secondary font-mono tracking-wider">{t.architecture.subtitle}</p>
-    </div>
 
-    <div className="max-w-3xl mx-auto space-y-3">
-      {t.architecture.layers.map((layer, i) => (
-        <div
-          key={i}
-          className="glass-panel flex items-center gap-4 p-4 animate-fade-in-up group hover:glow-purple transition-all duration-500"
-          style={{ animationDelay: `${i * 100}ms` }}
-        >
-          {/* Layer number */}
-          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-cyber-purple/20 to-amber-gold/20 border border-obsidian-border flex items-center justify-center">
-            <span className="text-sm font-mono font-bold bg-gradient-to-r from-cyber-purple to-amber-gold bg-clip-text text-transparent">{String(i).padStart(2, '0')}</span>
-          </div>
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-mono font-semibold text-text-primary group-hover:text-cyber-purple transition-colors">{layer.name}</div>
-            <div className="text-xs text-text-secondary font-mono truncate">{layer.desc}</div>
-          </div>
-          {/* Connector */}
-          {i < t.architecture.layers.length - 1 && (
-            <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0 group-hover:text-cyber-purple transition-colors" />
-          )}
-        </div>
-      ))}
-    </div>
-
-    {/* Security panel */}
-    <div className="max-w-3xl mx-auto mt-12 glass-panel-elevated p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <Shield className="w-5 h-5 text-green-400" />
-        <span className="text-sm font-mono font-semibold text-text-primary">{t.security.title}</span>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-lg bg-obsidian-mid/50 border border-green-500/20">
-          <div className="text-[10px] font-mono text-text-muted mb-1 tracking-wider">{t.security.postQuantum}</div>
-          <div className="flex items-center gap-2">
-            <Lock className="w-4 h-4 text-green-400" />
-            <span className="text-sm font-mono font-semibold text-green-400">{t.security.verified}</span>
-          </div>
-        </div>
-        <div className="p-4 rounded-lg bg-obsidian-mid/50 border border-cyber-purple/20">
-          <div className="text-[10px] font-mono text-text-muted mb-1 tracking-wider">{t.security.encryption}</div>
-          <div className="flex items-center gap-2">
-            <Cpu className="w-4 h-4 text-cyber-purple" />
-            <span className="text-sm font-mono font-semibold text-cyber-purple">{t.security.algorithm}</span>
-          </div>
-        </div>
-        <div className="p-4 rounded-lg bg-obsidian-mid/50 border border-amber-gold/20">
-          <div className="text-[10px] font-mono text-text-muted mb-1 tracking-wider">{t.security.connection}</div>
-          <div className="flex items-center gap-2">
-            <Wifi className="w-4 h-4 text-amber-gold" />
-            <span className="text-sm font-mono font-semibold text-amber-gold">{t.security.secure}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-);
 
 // ═══════════════════════════════════════════════════
 //  FOOTER
@@ -1268,7 +1170,6 @@ export default function App() {
           <>
             <HeroSection t={t} setActiveSection={setActiveSection} />
             <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-            <ArchitectureSection t={t} />
           </>
         )}
 
@@ -1281,10 +1182,7 @@ export default function App() {
         )}
 
         {activeSection === 'intel' && (
-          <>
-            <ArchitectureSection t={t} />
-            <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-          </>
+          <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
         )}
       </main>
 
