@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentinel-core-v1';
+const CACHE_NAME = 'sentinel-core-v2';
 // Target the specific Google Apps Script Edge Endpoint domain
 const EDGE_TARGET = 'script.google.com/macros';
 
