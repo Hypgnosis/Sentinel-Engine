@@ -7,6 +7,8 @@ import {
   BarChart3, FileText, ArrowUpRight, Sparkles, Hexagon,
   Volume2, VolumeX
 } from 'lucide-react';
+import DOMPurify from 'dompurify';
+import ReactMarkdown from 'react-markdown';
 
 // ═══════════════════════════════════════════════════
 //  TRANSLATIONS (i18n – EN / ES)
@@ -788,13 +790,18 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
     try {
       // THE GROUND TRUTH PAYLOAD is now natively handled by the Cloud Function via Firestore context
       const payload = {
-        encryptedQuery: query,
-        clientContext: 'source_alpha'
+        query: query,
       };
+
+      // Attach Firebase ID token if available (set during auth flow)
+      const idToken = sessionStorage.getItem('sentinel_token') || localStorage.getItem('sentinel_token');
 
       const response = await fetch(SENTINEL_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken && { 'Authorization': `Bearer ${idToken}` }),
+        },
         body: JSON.stringify(payload),
       });
 
@@ -832,36 +839,10 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
     setTimeout(() => document.getElementById('terminal-send')?.click(), 100);
   };
 
-  // --- MARKDOWN-LITE RENDERER ---
-  const renderContent = (text) => {
-    if (!text) return null;
-    const lines = text.split('\n');
-    return lines.map((line, i) => {
-      // Bold
-      let processed = line.replace(/\*\*(.+?)\*\*/g, '<strong class="text-text-primary font-semibold">$1</strong>');
-      // Inline code
-      processed = processed.replace(/`(.+?)`/g, '<code class="px-1.5 py-0.5 rounded bg-cyber-purple-dim text-cyber-purple text-[12px] font-mono">$1</code>');
-      // Bullet points
-      if (/^\s*[-*•]\s/.test(line)) {
-        const content = processed.replace(/^\s*[-*•]\s/, '');
-        return (
-          <div key={i} className="flex items-start gap-2 ml-2 my-0.5">
-            <span className="text-cyber-purple mt-1.5 text-[6px]">●</span>
-            <span className="text-[13px] leading-relaxed" dangerouslySetInnerHTML={{ __html: content }} />
-          </div>
-        );
-      }
-      // Headings (### etc)
-      if (/^#{1,3}\s/.test(line)) {
-        const content = processed.replace(/^#{1,3}\s/, '');
-        return <div key={i} className="text-sm font-semibold text-cyber-purple mt-3 mb-1 tracking-wider" dangerouslySetInnerHTML={{ __html: content }} />;
-      }
-      // Empty line = spacer
-      if (!line.trim()) return <div key={i} className="h-2" />;
-      // Normal text
-      return <p key={i} className="text-[13px] leading-relaxed my-0.5" dangerouslySetInnerHTML={{ __html: processed }} />;
-    });
-  };
+  // --- SAFE MARKDOWN RENDERER (ReactMarkdown + DOMPurify) ---
+  // Replaces the previous regex-based renderer that used dangerouslySetInnerHTML.
+  // DOMPurify strips any injected HTML/script tags BEFORE ReactMarkdown parses.
+  // ReactMarkdown converts markdown to React elements — no innerHTML anywhere.
 
   return (
     <section id="query-terminal" className="w-full px-4 sm:px-6 lg:px-8 py-6" style={{ minHeight: 'calc(100vh - 4rem)' }}>
@@ -979,8 +960,8 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
                       <span className="text-[11px] text-cyber-purple tracking-[0.15em] font-semibold">SENTINEL RESPONSE</span>
                       <span className="text-[10px] text-text-muted ml-auto">— {msg.timestamp}</span>
                     </div>
-                    <div className="text-text-primary/90 text-sm leading-relaxed">
-                      {renderContent(msg.content)}
+                    <div className="text-text-primary/90 text-sm leading-relaxed prose prose-invert prose-sm prose-p:my-1 prose-headings:text-cyber-purple prose-strong:text-text-primary prose-code:text-cyber-purple prose-code:bg-cyber-purple-dim prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-code:font-mono prose-a:text-cyber-purple max-w-none">
+                      <ReactMarkdown>{DOMPurify.sanitize(msg.content)}</ReactMarkdown>
                     </div>
                     <div className="mt-4 pt-3 border-t border-obsidian-border/30 flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-amber-gold" />
