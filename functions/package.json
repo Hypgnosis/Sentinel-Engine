@@ -1,0 +1,20 @@
+{
+  "name": "sentinel-engine-core",
+  "version": "2.1.0",
+  "description": "Sentinel Engine — Sovereign Intelligence Layer (Cloud Function)",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "npx @google-cloud/functions-framework --target=sentinelInference --port=8080",
+    "seed": "node seed-firestore.js",
+    "deploy": "gcloud functions deploy sentinelInference --gen2 --runtime=nodejs20 --region=us-central1 --trigger-http --allow-unauthenticated --memory=512MB --timeout=60s --entry-point=sentinelInference --source=."
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.11.0",
+    "@google-cloud/functions-framework": "^3.4.5",
+    "@google-cloud/vertexai": "^1.9.2",
+    "@google/genai": "^1.48.0"
+  }
+}

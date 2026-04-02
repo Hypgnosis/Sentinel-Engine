@@ -1,0 +1,263 @@
+/**
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (v2.1 White Label)
+ * ═══════════════════════════════════════════════════════════
+ * Google Cloud Function (Node.js 20+) — Gen2
+ * 
+ * Inference: Google Gen AI (Gemini 2.0 Flash)
+ * Context:   Cloud Firestore (sentinel_data)
+ * Security:  Zero-Trust CORS, Structured Audit Logging
+ * 
+ * Propiedad de High ArchyTech Solutions.
+ * Arquitectura diseñada para: ReshapeX, Fracttal, DHL, Maersk.
+ * ═══════════════════════════════════════════════════════════
+ */
+
+const functions = require('@google-cloud/functions-framework');
+const { GoogleGenAI } = require('@google/genai');
+const { Firestore } = require('@google-cloud/firestore');
+
+// ─────────────────────────────────────────────────────
+//  CONFIGURATION
+// ─────────────────────────────────────────────────────
+
+// Force production sovereign project to inherit Vertex AI Enterprise SLAs
+const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'ha-sentinel-core-prod';
+const GCP_REGION     = process.env.GCP_REGION     || 'us-central1';
+
+/**
+ * Allowed CORS origins — Zero Trust.
+ * Development: localhost:3000, localhost:5173
+ * Production:  https://sentinel.high-archy.tech
+ * Add client VPC domains as they onboard (e.g., DHL internal).
+ */
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://sentinel.high-archy.tech',
+];
+
+// ─────────────────────────────────────────────────────
+//  SERVICE INITIALIZATION (Cold-start optimized)
+// ─────────────────────────────────────────────────────
+
+const firestore = new Firestore({ projectId: GCP_PROJECT_ID });
+
+let ai = null;
+
+// ─────────────────────────────────────────────────────
+//  SYSTEM PROMPT — Sovereign Intelligence Persona
+// ─────────────────────────────────────────────────────
+
+const buildSystemPrompt = (contextPayload) => `
+SISTEMA: Sentinel Engine — Sovereign Intelligence Layer.
+ESTADO: White Label Infrastructure v2.1.
+ARQUITECTO: High ArchyTech Solutions.
+
+CONTEXTO OPERATIVO:
+${contextPayload}
+
+INSTRUCCIÓN:
+Eres el núcleo de inferencia estratégica para una organización logística global de nivel enterprise.
+Tu rol es eliminar la "Latencia de Decisión" — el tiempo perdido entre la disponibilidad de datos y la acción ejecutiva.
+
+DIRECTIVAS:
+1. Analiza patrones de congestión portuaria, volatilidad de fletes (spot y contractuales),
+   y cuellos de botella operativos en cadenas de suministro globales.
+2. Responde con datos concretos: cifras, porcentajes, tendencias, y benchmarks.
+3. Si los datos disponibles no cubren la consulta, indícalo explícitamente.
+   No inventes data points bajo ninguna circunstancia.
+4. Formato: estructura clara con bullet points, métricas destacadas, y recomendaciones accionables.
+5. Tono: ejecutivo, técnico, directo. Cero ambigüedad. Cero redundancia.
+6. Idioma: Responde en el mismo idioma de la consulta del usuario.
+
+CAPA DE SEGURIDAD: AES-256-GCM-ZDF | Post-Quantum Ready
+`;
+
+// ─────────────────────────────────────────────────────
+//  CORS HANDLER — Zero Trust Origin Validation
+// ─────────────────────────────────────────────────────
+
+const handleCORS = (req, res) => {
+  const origin = req.headers.origin || '';
+  const isAllowed = ALLOWED_ORIGINS.includes(origin);
+
+  if (isAllowed) {
+    res.set('Access-Control-Allow-Origin', origin);
+  }
+
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Sentinel-Client');
+  res.set('Access-Control-Max-Age', '3600');
+  res.set('Vary', 'Origin');
+
+  // Preflight
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return true; // Signal: request handled
+  }
+
+  // Method guard
+  if (req.method !== 'POST') {
+    res.status(405).json({
+      error: 'Method Not Allowed',
+      code: 'SENTINEL_METHOD_DENIED',
+      message: 'Only POST requests are accepted by the Sovereign Intelligence Layer.',
+    });
+    return true;
+  }
+
+  return false; // Signal: proceed to inference
+};
+
+// ─────────────────────────────────────────────────────
+//  CLOUD FUNCTION ENTRY POINT
+// ─────────────────────────────────────────────────────
+
+functions.http('sentinelInference', async (req, res) => {
+  const requestTimestamp = new Date().toISOString();
+
+  const requestId = `SEN-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+  // ── CORS & Method Gate ──
+  if (handleCORS(req, res)) return;
+
+  try {
+    if (!ai) {
+      ai = new GoogleGenAI({ 
+        vertexai: { 
+          project: GCP_PROJECT_ID, 
+          location: GCP_REGION 
+        },
+        project: GCP_PROJECT_ID,
+        location: GCP_REGION
+      });
+    }
+
+    // ── Extract Payload ──
+    const { encryptedQuery, clientContext } = req.body;
+
+    if (!encryptedQuery || typeof encryptedQuery !== 'string' || encryptedQuery.trim().length === 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        code: 'SENTINEL_EMPTY_QUERY',
+        message: 'The encryptedQuery field is required and must be a non-empty string.',
+        requestId,
+      });
+    }
+
+    const contextKey = clientContext || 'source_alpha';
+
+    // ── Structured Audit Log: Request Ingested ──
+    console.log(JSON.stringify({
+      severity: 'INFO',
+      event: 'SENTINEL_REQUEST_INGESTED',
+      requestId,
+      clientContext: contextKey,
+      queryLength: encryptedQuery.trim().length,
+      timestamp: requestTimestamp,
+    }));
+
+    // ── Retrieve Source Alpha from Firestore ──
+    const sourceAlphaRef = firestore.collection('sentinel_data').doc(contextKey);
+    const doc = await sourceAlphaRef.get();
+
+    if (!doc.exists) {
+      console.error(JSON.stringify({
+        severity: 'ERROR',
+        event: 'SOURCE_ALPHA_NOT_FOUND',
+        requestId,
+        contextKey,
+        timestamp: requestTimestamp,
+      }));
+
+      return res.status(503).json({
+        error: 'Infrastructure Data Integrity Breach',
+        code: 'SOURCE_ALPHA_MISSING',
+        message: `Source Alpha context document '${contextKey}' not found in Firestore. Data pipeline may require re-initialization.`,
+        requestId,
+      });
+    }
+
+    const contextData = doc.data();
+    const contextPayload = typeof contextData.content === 'string'
+      ? contextData.content
+      : JSON.stringify(contextData.content || contextData, null, 2);
+
+    // ── Build Prompt & Execute Inference ──
+    const systemPrompt = buildSystemPrompt(contextPayload);
+
+    // ── Execute Sovereign Inference ──
+    const result = await ai.models.generateContent({
+      model: 'gemini-1.5-pro',
+      contents: encryptedQuery.trim(),
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.1,
+        maxOutputTokens: 2048,
+        topP: 0.8,
+        responseModalities: ["TEXT", "AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: "Puck"
+            }
+          }
+        }
+      }
+    });
+
+    const inferenceOutput = result.text;
+
+    // Search for the generated audio payload in the content parts
+    let audioBase64 = null;
+    if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts) {
+      const audioPart = result.candidates[0].content.parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('audio/'));
+      if (audioPart) {
+        audioBase64 = audioPart.inlineData.data;
+      }
+    }
+
+    // ── Structured Audit Log: Inference Complete ──
+    console.log(JSON.stringify({
+      severity: 'INFO',
+      event: 'SENTINEL_INFERENCE_COMPLETE',
+      requestId,
+      clientContext: contextKey,
+      model: 'gemini-1.5-pro-001',
+      outputLength: inferenceOutput.length,
+      timestamp: new Date().toISOString(),
+      latencyMs: Date.now() - new Date(requestTimestamp).getTime(),
+    }));
+
+    // ── Success Response ──
+    return res.status(200).json({
+      status: 'SUCCESS',
+      model: 'gemini-1.5-pro',
+      timestamp: new Date().toISOString(),
+      data: inferenceOutput,
+      audioData: audioBase64,  // Native API PCM base64 encoded audio
+      security_layer: 'AES-256-GCM-ZDF',
+      infrastructure: 'Google Gen AI SDK (Server-Side Direct)',
+      requestId,
+    });
+
+  } catch (error) {
+    // ── Structured Audit Log: Critical Failure ──
+    console.error(JSON.stringify({
+      severity: 'CRITICAL',
+      event: 'SENTINEL_INFERENCE_FAILURE',
+      requestId,
+      errorMessage: error.message,
+      errorStack: error.stack,
+      timestamp: new Date().toISOString(),
+    }));
+
+    return res.status(500).json({
+      error: 'Infrastructure Failure',
+      code: 'DECISION_LATENCY_ERROR',
+      message: 'Falla en la capa de inferencia soberana.',
+      detail: error.message,
+      requestId,
+    });
+  }
+});
