@@ -15,6 +15,11 @@
 const functions = require('@google-cloud/functions-framework');
 const { GoogleGenAI } = require('@google/genai');
 const { Firestore } = require('@google-cloud/firestore');
+const admin = require('firebase-admin');
+
+// Initialize Firebase Admin (will automatically use default credentials inside Cloud Functions)
+admin.initializeApp();
+
 
 // ─────────────────────────────────────────────────────
 //  CONFIGURATION
@@ -78,7 +83,10 @@ CAPA DE SEGURIDAD: AES-256-GCM-ZDF | Post-Quantum Ready
 // ─────────────────────────────────────────────────────
 
 const handleCORS = (req, res) => {
-  res.set('Access-Control-Allow-Origin', 'https://sentinel-engine.netlify.app'); // O '*' para desarrollo
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+  }
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Sentinel-Client');
   
@@ -125,19 +133,33 @@ functions.http('sentinelInference', async (req, res) => {
       });
     }
 
-    // ── Extract Payload ──
-    const { encryptedQuery, clientContext } = req.body;
+    // ── Authentication Gate (Bearer Token) ──
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized', code: 'SENTINEL_UNAUTH', message: 'Missing or invalid Bearer token.' });
+    }
+    const token = authHeader.split('Bearer ')[1];
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(token);
+    } catch (err) {
+      return res.status(401).json({ error: 'Unauthorized', code: 'SENTINEL_UNAUTH', message: 'Token verification failed.' });
+    }
 
-    if (!encryptedQuery || typeof encryptedQuery !== 'string' || encryptedQuery.trim().length === 0) {
+    // ── Extract Payload ──
+    const { query } = req.body;
+
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
       return res.status(400).json({
         error: 'Bad Request',
         code: 'SENTINEL_EMPTY_QUERY',
-        message: 'The encryptedQuery field is required and must be a non-empty string.',
+        message: 'The query field is required and must be a non-empty string.',
         requestId,
       });
     }
 
-    const contextKey = clientContext || 'source_alpha';
+    // Sever IDOR: Derive context from authenticated token rather than client input
+    const contextKey = decodedToken.tenantId || decodedToken.uid || 'source_alpha';
 
     // ── Structured Audit Log: Request Ingested ──
     console.log(JSON.stringify({
@@ -145,8 +167,9 @@ functions.http('sentinelInference', async (req, res) => {
       event: 'SENTINEL_REQUEST_INGESTED',
       requestId,
       clientContext: contextKey,
-      queryLength: encryptedQuery.trim().length,
+      queryLength: query.trim().length,
       timestamp: requestTimestamp,
+      uid: decodedToken.uid
     }));
 
     // ── Retrieve Source Alpha from Firestore ──
@@ -181,20 +204,12 @@ functions.http('sentinelInference', async (req, res) => {
     // ── Execute Sovereign Inference ──
     const result = await ai.models.generateContent({
       model: 'gemini-1.5-pro',
-      contents: encryptedQuery.trim(),
+      contents: query.trim(),
       config: {
         systemInstruction: systemPrompt,
         temperature: 0.1,
         maxOutputTokens: 2048,
-        topP: 0.8,
-        responseModalities: ["TEXT", "AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: "Puck"
-            }
-          }
-        }
+        topP: 0.8
       }
     });
 
@@ -247,7 +262,7 @@ functions.http('sentinelInference', async (req, res) => {
     return res.status(500).json({
       error: 'Infrastructure Failure',
       code: 'DECISION_LATENCY_ERROR',
-      message: 'Falla en la capa de inferencia soberana.',
+      message: 'Sovereign inference layer failure.',
       detail: error.message,
       requestId,
     });
