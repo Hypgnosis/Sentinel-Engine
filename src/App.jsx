@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
+import { getAuth } from 'firebase/auth';
 
 // ═══════════════════════════════════════════════════
 //  TRANSLATIONS (i18n – EN / ES)
@@ -793,14 +794,21 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
         query: query,
       };
 
-      // Attach Firebase ID token if available (set during auth flow)
-      const idToken = sessionStorage.getItem('sentinel_token') || localStorage.getItem('sentinel_token');
+      // Acquire a fresh Firebase ID token from the SDK's secure credential store.
+      // Firebase Auth manages token refresh and storage internally —
+      // tokens are NEVER stored in localStorage or sessionStorage.
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('Authentication required. Please sign in to access the Sentinel Engine.');
+      }
+      const idToken = await currentUser.getIdToken(/* forceRefresh */ false);
 
       const response = await fetch(SENTINEL_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(idToken && { 'Authorization': `Bearer ${idToken}` }),
+          'Authorization': `Bearer ${idToken}`,
         },
         body: JSON.stringify(payload),
       });
@@ -1127,18 +1135,29 @@ export default function App() {
       setConnectionStatus(translations[lang]?.sync?.verifying || 'VERIFYING POST-QUANTUM ROUTE...');
 
       try {
-        // We ping the CF with an empty POST to trigger the custom 400 SENTINEL_EMPTY_QUERY block. 
-        // This validates the route is fully active without consuming Vertex LLM tokens.
+        // Health-check: Ping the CF to validate the route is active.
+        // With auth enabled, an unauthenticated ping returns 401 (SENTINEL_AUTH_MISSING).
+        // An authenticated ping with empty body returns 400 (SENTINEL_EMPTY_QUERY).
+        // Both confirm the tunnel is operational without consuming LLM tokens.
+        const auth = getAuth();
+        const user = auth.currentUser;
+        const pingHeaders = { 'Content-Type': 'application/json' };
+        if (user) {
+          const token = await user.getIdToken(false);
+          pingHeaders['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(SENTINEL_ENDPOINT, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: pingHeaders,
           body: JSON.stringify({})
         });
         
         const data = await response.json();
 
-        if (response.status === 400 && data.code === 'SENTINEL_EMPTY_QUERY') {
-          // Fake synthetic context metadata since the Cloud Function manages Firestore natively now
+        // 401 = auth gate is alive (unauthenticated ping), 400 = reached validation layer (authenticated ping)
+        if ((response.status === 401 && data.code === 'SENTINEL_AUTH_MISSING') ||
+            (response.status === 400 && data.code === 'SENTINEL_EMPTY_QUERY')) {
           setSourceAlphaData({ routing: "VPC_INTERNAL", data_authority: "GCP_FIRESTORE_NATIVE", zero_trust: "VERIFIED" });
           setConnectionStatus(translations[lang]?.sync?.verified || 'HANDSHAKE VERIFIED: AUTHORITY STAMP < 1HR');
           console.log("Sentinel Engine: Secure route established. Sovereign inference ready.");

@@ -1,10 +1,8 @@
 const CACHE_NAME = 'sentinel-core-v2';
-// Target the Cloud Functions inference endpoint domain
-const EDGE_TARGET = 'cloudfunctions.net';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
-  console.log('Sentinel Engine: Service Worker Installed (Post-Quantum Secure)');
+  console.log('Sentinel Engine: Service Worker Installed');
 });
 
 self.addEventListener('activate', (event) => {
@@ -23,7 +21,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // SKIP non-GET requests entirely (POST to Gemini API, etc.)
+  // SKIP non-GET requests entirely (POST to Cloud Functions, etc.)
   // The Cache API does not support caching POST requests.
   if (request.method !== 'GET') return;
 
@@ -32,41 +30,23 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
-  // 1. Intercept Edge Endpoint Requests (Network-first, cache fallback)
-  if (request.url.includes(EDGE_TARGET)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Network Success: Clone and cache the live payload
-          const responseClone = response.clone();
+  // Standard Asset Caching (Stale-While-Revalidate)
+  // Only caches GET requests for static assets (JS, CSS, images, fonts).
+  // The LLM inference endpoint is POST — it is never intercepted here.
+  event.respondWith(
+    caches.match(request).then((cachedResponse) => {
+      const fetchPromise = fetch(request).then((networkResponse) => {
+        // Only cache valid, non-opaque responses
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'opaque') {
+          const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
+            cache.put(request, clone);
           });
-          return response;
-        })
-        .catch(() => {
-          // Network Failure: Serve the last known cached payload
-          console.warn('Sentinel Engine: Network severed. Engaging offline cache.');
-          return caches.match(request);
-        })
-    );
-  } else {
-    // 2. Standard Asset Caching (Stale-While-Revalidate)
-    event.respondWith(
-      caches.match(request).then((cachedResponse) => {
-        const fetchPromise = fetch(request).then((networkResponse) => {
-          // Only cache valid, non-opaque responses
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'opaque') {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, clone);
-            });
-          }
-          return networkResponse;
-        }).catch(() => null);
+        }
+        return networkResponse;
+      }).catch(() => null);
 
-        return cachedResponse || fetchPromise;
-      })
-    );
-  }
+      return cachedResponse || fetchPromise;
+    })
+  );
 });

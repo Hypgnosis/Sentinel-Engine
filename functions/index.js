@@ -184,10 +184,12 @@ functions.http('sentinelInference', async (req, res) => {
       });
     }
 
-    // ── IDOR Prevention ──
-    // Context key is ALWAYS derived server-side from the authenticated identity.
-    // The client has zero control over which Firestore document is loaded.
-    const contextKey = 'source_alpha';
+    // ── Data Sovereignty: True Multi-Tenant Isolation ──
+    // The context key is derived EXCLUSIVELY from the verified JWT claims.
+    // - Multi-org: uses the Firebase custom claim 'tenant_id' (set during onboarding)
+    // - Per-user fallback: uses the authenticated UID as an isolation boundary
+    // The client has ZERO control over which Firestore document is loaded.
+    const contextKey = decodedToken.tenant_id || decodedToken.uid;
 
     // ── Structured Audit Log: Request Ingested ──
     console.log(JSON.stringify({
