@@ -184,12 +184,33 @@ functions.http('sentinelInference', async (req, res) => {
       });
     }
 
-    // ── Data Sovereignty: True Multi-Tenant Isolation ──
-    // The context key is derived EXCLUSIVELY from the verified JWT claims.
-    // - Multi-org: uses the Firebase custom claim 'tenant_id' (set during onboarding)
-    // - Per-user fallback: uses the authenticated UID as an isolation boundary
-    // The client has ZERO control over which Firestore document is loaded.
-    const contextKey = decodedToken.tenant_id || decodedToken.uid;
+    // ── Data Sovereignty: Strict Tenant Authorization ──
+    // The context key is derived EXCLUSIVELY from the verified JWT custom claim 'tenant_id'.
+    // This claim is set server-side during client onboarding via Admin SDK.
+    //
+    // CRITICAL: We do NOT fall back to decodedToken.uid.
+    // Without this gate, any random person who signs up to the Firebase project
+    // can spam the Cloud Function — even if the doc 404s, it still generates
+    // a billable Firestore read + CF invocation (Denial of Wallet).
+    // Only onboarded tenants with an explicit tenant_id claim can proceed.
+    const tenantId = decodedToken.tenant_id;
+    if (!tenantId) {
+      console.error(JSON.stringify({
+        severity: 'WARNING',
+        event: 'SENTINEL_TENANT_MISSING',
+        requestId,
+        uid: decodedToken.uid,
+        message: 'Authenticated user lacks tenant_id custom claim. Access denied.',
+        timestamp: requestTimestamp,
+      }));
+      return res.status(403).json({
+        error: 'Forbidden',
+        code: 'SENTINEL_TENANT_REQUIRED',
+        message: 'Your account has not been provisioned for Sentinel Engine access. Contact your administrator.',
+        requestId,
+      });
+    }
+    const contextKey = tenantId;
 
     // ── Structured Audit Log: Request Ingested ──
     console.log(JSON.stringify({

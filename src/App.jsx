@@ -797,7 +797,11 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
       // Acquire a fresh Firebase ID token from the SDK's secure credential store.
       // Firebase Auth manages token refresh and storage internally —
       // tokens are NEVER stored in localStorage or sessionStorage.
+      //
+      // CRITICAL: authStateReady() gates on Firebase's async hydration from IndexedDB.
+      // Without this, auth.currentUser is null on cold load — a synchronous race condition.
       const auth = getAuth();
+      await auth.authStateReady();
       const currentUser = auth.currentUser;
       if (!currentUser) {
         throw new Error('Authentication required. Please sign in to access the Sentinel Engine.');
@@ -1140,6 +1144,7 @@ export default function App() {
         // An authenticated ping with empty body returns 400 (SENTINEL_EMPTY_QUERY).
         // Both confirm the tunnel is operational without consuming LLM tokens.
         const auth = getAuth();
+        await auth.authStateReady();
         const user = auth.currentUser;
         const pingHeaders = { 'Content-Type': 'application/json' };
         if (user) {
