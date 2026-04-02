@@ -1,6 +1,6 @@
 const CACHE_NAME = 'sentinel-core-v2';
-// Target the specific Google Cloud Functions endpoint domain
-const EDGE_TARGET = 'cloudfunctions.net';
+// Target the specific Google Apps Script Edge Endpoint domain
+const EDGE_TARGET = 'script.google.com/macros';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
