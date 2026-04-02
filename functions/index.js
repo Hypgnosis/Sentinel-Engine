@@ -78,18 +78,10 @@ CAPA DE SEGURIDAD: AES-256-GCM-ZDF | Post-Quantum Ready
 // ─────────────────────────────────────────────────────
 
 const handleCORS = (req, res) => {
-  const origin = req.headers.origin || '';
-  const isAllowed = ALLOWED_ORIGINS.includes(origin);
-
-  if (isAllowed) {
-    res.set('Access-Control-Allow-Origin', origin);
-  }
-
+  res.set('Access-Control-Allow-Origin', 'https://sentinel-engine.netlify.app'); // O '*' para desarrollo
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Sentinel-Client');
-  res.set('Access-Control-Max-Age', '3600');
-  res.set('Vary', 'Origin');
-
+  
   // Preflight
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
