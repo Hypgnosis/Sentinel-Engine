@@ -1,0 +1,57 @@
+Traceback (most recent call last):
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\gcloud.py", line 186, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\gcloud.py", line 180, in main
+    gcloud_main = _import_gcloud_main()
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\gcloud.py", line 87, in _import_gcloud_main
+    import googlecloudsdk.gcloud_main
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\gcloud_main.py", line 31, in <module>
+    from googlecloudsdk.calliope import base
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\calliope\base.py", line 30, in <module>
+    from googlecloudsdk.calliope import actions
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\calliope\actions.py", line 26, in <module>
+    from googlecloudsdk.core import log
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\log.py", line 29, in <module>
+    from googlecloudsdk.core import properties
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\properties.py", line 4550, in <module>
+    VALUES = _Sections()
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\properties.py", line 535, in __init__
+    self.api_endpoint_overrides = _SectionApiEndpointOverrides()
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\properties.py", line 1484, in __init__
+    self.spanner = self._Add(
+                   ~~~~~~~~~^
+        'spanner',
+        ^^^^^^^^^^
+    ...<2 lines>...
+        'https://cloud.google.com/spanner/docs/emulator#using_the_gcloud_cli_with_the_emulator'
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\properties.py", line 1538, in _Add
+    default_endpoint = self.GetDefaultEndpoint(name)
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\properties.py", line 1573, in GetDefaultEndpoint
+    return self.UniversifyAddress(api_def.apitools.base_url)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\properties.py", line 1552, in UniversifyAddress
+    active_config = named_configs.ConfigurationStore.ActiveConfig()
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\configurations\named_configs.py", line 169, in ActiveConfig
+    return ActiveConfig(force_create=True)
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\configurations\named_configs.py", line 485, in ActiveConfig
+    config_name = _EffectiveActiveConfigName()
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\configurations\named_configs.py", line 510, in _EffectiveActiveConfigName
+    config_name = _ActiveConfigNameFromFile()
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\configurations\named_configs.py", line 534, in _ActiveConfigNameFromFile
+    config_name = file_utils.ReadFileContents(path)
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\util\files.py", line 1084, in ReadFileContents
+    with FileReader(path) as f:
+         ~~~~~~~~~~^^^^^^
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\util\files.py", line 1208, in FileReader
+    return _FileOpener(path, 'rt', 'read', encoding='utf-8')
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\util\files.py", line 1307, in _FileOpener
+    return io.open(path, mode, encoding=encoding, newline=newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen codecs>", line 312, in __init__
+KeyboardInterrupt
+^C

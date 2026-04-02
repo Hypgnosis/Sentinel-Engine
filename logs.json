@@ -1,0 +1,96 @@
+[
+  {
+    "execution_id": "gxeamy9nzt3i",
+    "level": "CRITICAL",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 03:39:17.988"
+  },
+  {
+    "execution_id": "gxeamy9nzt3i",
+    "level": "I",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 03:39:16.975"
+  },
+  {
+    "level": "I",
+    "log": "Default STARTUP TCP probe succeeded after 1 attempt for container \"worker\" on port 8080.",
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 03:39:16.893"
+  },
+  {
+    "log": "The VertexAI class and all its dependencies are deprecated as of June 24, 2025 and will be removed on June 24, 2026. Please use the Google Gen AI SDK (https://www.npmjs.com/package/@google/genai) to access Gemini features. For details, see https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk.",
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 03:39:16.881"
+  },
+  {
+    "level": "I",
+    "log": "Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.",
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 03:39:15.289"
+  },
+  {
+    "level": "E",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 03:39:15.251"
+  },
+  {
+    "level": "I",
+    "log": "Default STARTUP TCP probe succeeded after 1 attempt for container \"worker\" on port 8080.",
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 01:35:10.349"
+  },
+  {
+    "log": "The VertexAI class and all its dependencies are deprecated as of June 24, 2025 and will be removed on June 24, 2026. Please use the Google Gen AI SDK (https://www.npmjs.com/package/@google/genai) to access Gemini features. For details, see https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk.",
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 01:35:10.332"
+  },
+  {
+    "level": "I",
+    "log": "Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.",
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 01:35:08.834"
+  },
+  {
+    "execution_id": "gquusij0qpop",
+    "level": "CRITICAL",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 00:36:12.580"
+  },
+  {
+    "execution_id": "gquusij0qpop",
+    "level": "I",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 00:36:12.258"
+  },
+  {
+    "level": "E",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 00:36:12.252"
+  },
+  {
+    "execution_id": "gqubfvzac7vn",
+    "level": "CRITICAL",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 00:35:50.177"
+  },
+  {
+    "execution_id": "gqubfvzac7vn",
+    "level": "I",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 00:35:47.196"
+  },
+  {
+    "level": "E",
+    "log": null,
+    "name": "sentinelinference",
+    "time_utc": "2026-04-02 00:35:47.117"
+  }
+]

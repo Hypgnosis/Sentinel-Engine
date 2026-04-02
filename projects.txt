@@ -1,0 +1,18 @@
+PROJECT_ID                      NAME                            PROJECT_NUMBER  ENVIRONMENT
+api-project-50718128252         API Project                     50718128252
+cocina-lcdr                     Cocina LCDR                     622879672801
+consulta-virtual-yo-te-cuido    Consulta-Virtual-Yo-Te-Cuido    972047859600
+diagnostico-y-consulta-digital  Diagnostico y Consulta Digital  760720766467
+expanded-harbor-387613          My First Project                245027524310
+gen-lang-client-0126814168      Sovereign Agent Open Claw       1097476828566
+gen-lang-client-0331212149      Writing Intelligence Suite      596802722666
+gen-lang-client-0560343560      Sentinel Engine                 199646123336
+glossos                         GLOSSOS                         693551836543
+golden-age-merida               1065159584133836375             444673956902
+ha-sentinel-core-prod           Sentinel Engine Core            157116743977
+ha-sentinel-core-v21            Sentinel Engine Core            21612290402
+infinite-heroes-comic-creator   Infinite Heroes Comic Creator   316568781590
+la-casa-del-recuerdo            La Casa Del Recuerdo            575348161883
+lacasadelrecuerdo-v2            lacasadelrecuerdo-v2            452145617791
+sovereign-agent-92e61           SOVEREIGN AGENT                 369900872933
+yo-te-cuido-5b10f               Yo Te Cuido                     637120419380

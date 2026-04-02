@@ -1,0 +1,41 @@
+buildConfig:
+  automaticUpdatePolicy: {}
+  build: projects/21612290402/locations/us-central1/builds/4fe3af83-9e3a-461d-aef8-7de658786d8d
+  dockerRegistry: ARTIFACT_REGISTRY
+  dockerRepository: projects/ha-sentinel-core-v21/locations/us-central1/repositories/gcf-artifacts
+  entryPoint: sentinelInference
+  runtime: nodejs20
+  serviceAccount: projects/ha-sentinel-core-v21/serviceAccounts/21612290402-compute@developer.gserviceaccount.com
+  source:
+    storageSource:
+      bucket: gcf-v2-sources-21612290402-us-central1
+      generation: '1775103890439851'
+      object: sentinelInference/function-source.zip
+  sourceProvenance:
+    resolvedStorageSource:
+      bucket: gcf-v2-sources-21612290402-us-central1
+      generation: '1775103890439851'
+      object: sentinelInference/function-source.zip
+createTime: '2026-04-01T19:39:18.092422747Z'
+environment: GEN_2
+labels:
+  deployment-tool: cli-gcloud
+name: projects/ha-sentinel-core-v21/locations/us-central1/functions/sentinelInference
+satisfiesPzi: true
+serviceConfig:
+  allTrafficOnLatestRevision: true
+  availableCpu: '0.3333'
+  availableMemory: 512M
+  environmentVariables:
+    LOG_EXECUTION_ID: 'true'
+  ingressSettings: ALLOW_ALL
+  maxInstanceCount: 60
+  maxInstanceRequestConcurrency: 1
+  revision: sentinelinference-00004-jax
+  service: projects/ha-sentinel-core-v21/locations/us-central1/services/sentinelinference
+  serviceAccountEmail: 21612290402-compute@developer.gserviceaccount.com
+  timeoutSeconds: 60
+  uri: https://sentinelinference-3pxxi4yoya-uc.a.run.app
+state: ACTIVE
+updateTime: '2026-04-02T04:25:37.455293623Z'
+url: https://us-central1-ha-sentinel-core-v21.cloudfunctions.net/sentinelInference

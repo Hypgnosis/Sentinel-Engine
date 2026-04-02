@@ -1,0 +1,40 @@
+bindings:
+- members:
+  - serviceAccount:21612290402-compute@developer.gserviceaccount.com
+  role: roles/aiplatform.user
+- members:
+  - serviceAccount:service-21612290402@gcp-sa-artifactregistry.iam.gserviceaccount.com
+  role: roles/artifactregistry.serviceAgent
+- members:
+  - serviceAccount:21612290402@cloudbuild.gserviceaccount.com
+  role: roles/cloudbuild.builds.builder
+- members:
+  - serviceAccount:service-21612290402@gcp-sa-cloudbuild.iam.gserviceaccount.com
+  role: roles/cloudbuild.serviceAgent
+- members:
+  - serviceAccount:service-21612290402@gcf-admin-robot.iam.gserviceaccount.com
+  role: roles/cloudfunctions.serviceAgent
+- members:
+  - serviceAccount:service-21612290402@containerregistry.iam.gserviceaccount.com
+  role: roles/containerregistry.ServiceAgent
+- members:
+  - serviceAccount:21612290402-compute@developer.gserviceaccount.com
+  - serviceAccount:ha-sentinel-core-v21@appspot.gserviceaccount.com
+  role: roles/editor
+- members:
+  - serviceAccount:service-21612290402@firebase-rules.iam.gserviceaccount.com
+  role: roles/firebaserules.system
+- members:
+  - serviceAccount:service-21612290402@gcp-sa-firestore.iam.gserviceaccount.com
+  role: roles/firestore.serviceAgent
+- members:
+  - user:luisfmartinez11@gmail.com
+  role: roles/owner
+- members:
+  - serviceAccount:service-21612290402@gcp-sa-pubsub.iam.gserviceaccount.com
+  role: roles/pubsub.serviceAgent
+- members:
+  - serviceAccount:service-21612290402@serverless-robot-prod.iam.gserviceaccount.com
+  role: roles/run.serviceAgent
+etag: BwZOb44SuDU=
+version: 1

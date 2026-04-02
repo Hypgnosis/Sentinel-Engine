@@ -53,6 +53,14 @@ const firestore = new Firestore({ projectId: GCP_PROJECT_ID });
 
 let ai = null;
 
+// ── In-Memory Global Caching & Throttling ──
+const CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutes
+const sourceAlphaCache = new Map(); // key: contextKey, value: { payload, timestamp }
+
+const RATE_LIMIT_WINDOW_MS = 1000 * 10; // 10 seconds
+const RATE_LIMIT_MAX_REQUESTS = 5;
+const requestStamps = new Map(); // key: uid, value: [timestamps]
+
 // ─────────────────────────────────────────────────────
 //  SYSTEM PROMPT — Sovereign Intelligence Persona
 // ─────────────────────────────────────────────────────
@@ -212,6 +220,33 @@ functions.http('sentinelInference', async (req, res) => {
     }
     const contextKey = tenantId;
 
+    // ── Pre-execution: Layer 7 Rate Limiting ──
+    const uid = decodedToken.uid;
+    const nowMs = Date.now();
+    const stamps = requestStamps.get(uid) || [];
+    // Filter out timestamps older than the window
+    const recentStamps = stamps.filter(t => nowMs - t < RATE_LIMIT_WINDOW_MS);
+
+    if (recentStamps.length >= RATE_LIMIT_MAX_REQUESTS) {
+      console.warn(JSON.stringify({
+        severity: 'WARNING',
+        event: 'SENTINEL_RATE_LIMITED',
+        requestId,
+        uid,
+        message: `Rate limit exceeded (${RATE_LIMIT_MAX_REQUESTS} reqs / 10s)`,
+        timestamp: requestTimestamp,
+      }));
+      return res.status(429).json({
+        error: 'Too Many Requests',
+        code: 'SENTINEL_RATE_LIMIT_EXCEEDED',
+        message: 'You have exceeded the maximum number of requests. Please slow down.',
+        requestId,
+      });
+    }
+
+    recentStamps.push(nowMs);
+    requestStamps.set(uid, recentStamps);
+
     // ── Structured Audit Log: Request Ingested ──
     console.log(JSON.stringify({
       severity: 'INFO',
@@ -223,31 +258,42 @@ functions.http('sentinelInference', async (req, res) => {
       timestamp: requestTimestamp,
     }));
 
-    // ── Retrieve Source Alpha from Firestore ──
-    const sourceAlphaRef = firestore.collection('sentinel_data').doc(contextKey);
-    const doc = await sourceAlphaRef.get();
+    // ── Retrieve Source Alpha (Cache-Aware) ──
+    const nowMsForCache = Date.now();
+    let contextPayload;
 
-    if (!doc.exists) {
-      console.error(JSON.stringify({
-        severity: 'ERROR',
-        event: 'SOURCE_ALPHA_NOT_FOUND',
-        requestId,
-        contextKey,
-        timestamp: requestTimestamp,
-      }));
+    if (sourceAlphaCache.has(contextKey) && (nowMsForCache - sourceAlphaCache.get(contextKey).timestamp) < CACHE_TTL_MS) {
+      contextPayload = sourceAlphaCache.get(contextKey).payload;
+      console.log(JSON.stringify({ severity: 'DEBUG', event: 'CACHE_HIT', contextKey, requestId }));
+    } else {
+      console.log(JSON.stringify({ severity: 'DEBUG', event: 'CACHE_MISS', contextKey, requestId }));
+      const sourceAlphaRef = firestore.collection('sentinel_data').doc(contextKey);
+      const doc = await sourceAlphaRef.get();
 
-      return res.status(503).json({
-        error: 'Infrastructure Data Integrity Breach',
-        code: 'SOURCE_ALPHA_MISSING',
-        message: `Source Alpha context document '${contextKey}' not found in Firestore. Data pipeline may require re-initialization.`,
-        requestId,
-      });
+      if (!doc.exists) {
+        console.error(JSON.stringify({
+          severity: 'ERROR',
+          event: 'SOURCE_ALPHA_NOT_FOUND',
+          requestId,
+          contextKey,
+          timestamp: requestTimestamp,
+        }));
+
+        return res.status(503).json({
+          error: 'Infrastructure Data Integrity Breach',
+          code: 'SOURCE_ALPHA_MISSING',
+          message: `Source Alpha context document '${contextKey}' not found in Firestore. Data pipeline may require re-initialization.`,
+          requestId,
+        });
+      }
+
+      const contextData = doc.data();
+      contextPayload = typeof contextData.content === 'string'
+        ? contextData.content
+        : JSON.stringify(contextData.content || contextData, null, 2);
+
+      sourceAlphaCache.set(contextKey, { payload: contextPayload, timestamp: nowMsForCache });
     }
-
-    const contextData = doc.data();
-    const contextPayload = typeof contextData.content === 'string'
-      ? contextData.content
-      : JSON.stringify(contextData.content || contextData, null, 2);
 
     // ── Build Prompt & Execute Inference ──
     const systemPrompt = buildSystemPrompt(contextPayload);

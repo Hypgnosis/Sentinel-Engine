@@ -1,0 +1,42 @@
+Traceback (most recent call last):
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\gcloud.py", line 186, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\gcloud.py", line 180, in main
+    gcloud_main = _import_gcloud_main()
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\gcloud.py", line 87, in _import_gcloud_main
+    import googlecloudsdk.gcloud_main
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\gcloud_main.py", line 33, in <module>
+    from googlecloudsdk.command_lib import crash_handling
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\command_lib\crash_handling.py", line 24, in <module>
+    from googlecloudsdk.api_lib.error_reporting import util
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\api_lib\error_reporting\util.py", line 19, in <module>
+    from googlecloudsdk.api_lib.util import apis as core_apis
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\api_lib\util\apis.py", line 21, in <module>
+    from googlecloudsdk.api_lib.util import api_enablement
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\api_lib\util\api_enablement.py", line 21, in <module>
+    from googlecloudsdk.api_lib.services import enable_api
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\api_lib\services\enable_api.py", line 19, in <module>
+    from googlecloudsdk.api_lib.services import services_util
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\api_lib\services\services_util.py", line 23, in <module>
+    from googlecloudsdk.api_lib.util import apis_internal
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\api_lib\util\apis_internal.py", line 27, in <module>
+    from googlecloudsdk.core import requests as core_requests
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\googlecloudsdk\core\requests.py", line 31, in <module>
+    from google.auth.transport import requests as google_auth_requests
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\third_party\google\auth\transport\requests.py", line 41, in <module>
+    from google.oauth2 import service_account
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\third_party\google\oauth2\service_account.py", line 77, in <module>
+    from google.auth import _service_account_info
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\third_party\google\auth\_service_account_info.py", line 20, in <module>
+    from google.auth import crypt
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\third_party\google\auth\crypt\__init__.py", line 41, in <module>
+    from google.auth.crypt import rsa
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\third_party\google\auth\crypt\rsa.py", line 20, in <module>
+    from google.auth.crypt import _cryptography_rsa
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\..\lib\third_party\google\auth\crypt\_cryptography_rsa.py", line 22, in <module>
+    import cryptography.exceptions
+  File "C:\Users\Luisf\AppData\Local\Google\Cloud SDK\google-cloud-sdk\platform\bundledpython\Lib\cryptography\exceptions.py", line 9, in <module>
+    from cryptography.hazmat.bindings._rust import exceptions as rust_exceptions
+KeyboardInterrupt
+^C

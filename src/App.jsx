@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
-import { getAuth } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 
 // ═══════════════════════════════════════════════════
 //  TRANSLATIONS (i18n – EN / ES)
@@ -1116,6 +1116,46 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const t = translations[lang];
 
+  // --- AUTHENTICATION STATE ---
+  const [authUser, setAuthUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Listen to Firebase Auth state changes.
+  // This fires once on mount (with null or user) then on every sign-in/sign-out.
+  useEffect(() => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setAuthUser(user);
+      setAuthLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
+    try {
+      const auth = getAuth();
+      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      // onAuthStateChanged will fire and set authUser automatically
+    } catch (err) {
+      const messages = {
+        'auth/invalid-credential': 'Invalid email or password.',
+        'auth/user-disabled': 'This account has been disabled. Contact your administrator.',
+        'auth/too-many-requests': 'Too many attempts. Please try again later.',
+        'auth/network-request-failed': 'Network error. Check your connection.',
+      };
+      setLoginError(messages[err.code] || `Authentication failed: ${err.message}`);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
   // --- SENTINEL STATE MANAGEMENT ---
   const [sourceAlphaData, setSourceAlphaData] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('INITIATING HANDSHAKE...');
@@ -1205,6 +1245,95 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [lang]);
+
+  // ── Auth Loading Screen ──
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-obsidian flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-accent-cyan border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-text-secondary text-sm font-mono">INITIALIZING SECURE SESSION...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Login Overlay ──
+  if (!authUser) {
+    return (
+      <div className="min-h-screen bg-obsidian flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <Shield className="w-8 h-8 text-accent-cyan" />
+              <h1 className="text-2xl font-bold text-text-primary font-mono tracking-widest">SENTINEL</h1>
+            </div>
+            <p className="text-text-secondary text-sm">Autonomous Market Intelligence</p>
+            <p className="text-text-tertiary text-xs mt-1">High ArchyTech Solutions</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="bg-surface-primary border border-border-subtle rounded-lg p-6 space-y-4">
+            <div>
+              <label className="block text-text-secondary text-xs font-mono mb-1 uppercase tracking-wider">Operator Email</label>
+              <input
+                id="login-email"
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="w-full bg-obsidian border border-border-subtle rounded px-3 py-2 text-text-primary font-mono text-sm focus:outline-none focus:border-accent-cyan transition-colors"
+                placeholder="operator@enterprise.com"
+              />
+            </div>
+            <div>
+              <label className="block text-text-secondary text-xs font-mono mb-1 uppercase tracking-wider">Access Key</label>
+              <input
+                id="login-password"
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="w-full bg-obsidian border border-border-subtle rounded px-3 py-2 text-text-primary font-mono text-sm focus:outline-none focus:border-accent-cyan transition-colors"
+                placeholder="••••••••••••"
+              />
+            </div>
+
+            {loginError && (
+              <div className="flex items-center gap-2 text-status-danger text-xs font-mono bg-status-danger/10 border border-status-danger/30 rounded px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <button
+              id="login-submit"
+              type="submit"
+              disabled={loginLoading}
+              className="w-full bg-accent-cyan text-obsidian font-mono font-bold text-sm py-2.5 rounded hover:bg-accent-cyan/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loginLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-obsidian border-t-transparent rounded-full animate-spin"></div>
+                  AUTHENTICATING...
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  AUTHENTICATE
+                </>
+              )}
+            </button>
+
+            <p className="text-text-tertiary text-xs text-center font-mono mt-3">
+              Access restricted to provisioned enterprise operators.
+            </p>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-obsidian text-text-primary">

@@ -1,0 +1,160 @@
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+//  FOOTER
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+const Footer = ({ t }) => (
+  <footer id="footer" className="border-t border-obsidian-border bg-obsidian/50 backdrop-blur-md">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <SentinelLogo className="w-8 h-8" />
+          <div>
+            <HighArchyLogo className="h-5 mb-1" />
+            <p className="text-[11px] font-mono text-text-muted italic">{t.footer.tagline}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <a
+            href="https://high-archy.tech"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-mono text-text-secondary hover:text-cyber-purple transition-colors flex items-center gap-1.5"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            {t.footer.link}
+          </a>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-obsidian-border">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse-glow" />
+            <span className="text-[10px] font-mono text-text-muted">v3.2.1</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8 pt-6 border-t border-obsidian-border/50 text-center">
+        <p className="text-[10px] font-mono text-text-muted tracking-wider">
+          ┬® {new Date().getFullYear()} HIGH ARCHYTECH SOLUTIONS ÔÇö SENTINEL ENGINE ÔÇö ALL RIGHTS RESERVED
+        </p>
+      </div>
+    </div>
+  </footer>
+);
+
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+//  MAIN APP
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+export default function App() {
+  const [lang, setLang] = useState('en');
+  const [activeSection, setActiveSection] = useState('dashboard');
+  const t = translations[lang];
+
+  // --- SENTINEL STATE MANAGEMENT ---
+  const [sourceAlphaData, setSourceAlphaData] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('INITIATING HANDSHAKE...');
+  const [isSyncing, setIsSyncing] = useState(true);
+
+  // Your Proprietary Edge Endpoint
+  const EDGE_ENDPOINT = 'https://script.google.com/macros/s/AKfycby5EnpomeA-7z7DyNMj-XEpkvQ0LWZpttVpdFPZvy1hWQORK1XFIidRB1T44KfsXc8f/exec';
+
+  // --- AUTONOMOUS DATA PIPELINE (Offline-Aware) ---
+  useEffect(() => {
+    const synchronizeSourceAlpha = async () => {
+      setIsSyncing(true);
+
+      // Check network status before attempting sync
+      if (!navigator.onLine) {
+        setConnectionStatus('OFFLINE: SERVING CACHED INTELLIGENCE (AUTHORITY COMPROMISED)');
+        setIsSyncing(false);
+        return;
+      }
+
+      setConnectionStatus(translations[lang]?.sync?.verifying || 'VERIFYING POST-QUANTUM ROUTE...');
+
+      try {
+        const response = await fetch(EDGE_ENDPOINT);
+        const data = await response.json();
+
+        if (data.status === "POST-QUANTUM HANDSHAKE VERIFIED") {
+          setSourceAlphaData(data.payload);
+          setConnectionStatus(translations[lang]?.sync?.verified || 'HANDSHAKE VERIFIED: AUTHORITY STAMP < 1HR');
+          console.log("Sentinel Engine: Source Alpha Synchronized.");
+        } else {
+          throw new Error("Handshake Failed: Invalid Signature");
+        }
+      } catch (error) {
+        console.error("Sentinel Engine Error:", error);
+        // If we're offline (detected during fetch failure), the SW may have served cached data
+        if (!navigator.onLine) {
+          setConnectionStatus('OFFLINE: SERVING CACHED INTELLIGENCE (AUTHORITY COMPROMISED)');
+        } else {
+          setConnectionStatus(translations[lang]?.sync?.compromised || 'PIPELINE COMPROMISED. RETRYING...');
+        }
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    synchronizeSourceAlpha();
+    const syncInterval = setInterval(synchronizeSourceAlpha, 3600000);
+
+    // --- NETWORK STATUS LISTENERS ---
+    const handleOnline = () => {
+      console.log('Sentinel Engine: Network restored. Re-syncing Source Alpha...');
+      synchronizeSourceAlpha();
+    };
+
+    const handleOffline = () => {
+      console.warn('Sentinel Engine: Network severed. Engaging offline cache.');
+      setConnectionStatus('OFFLINE: SERVING CACHED INTELLIGENCE (AUTHORITY COMPROMISED)');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [lang]);
+
+  return (
+    <div className="min-h-screen bg-obsidian text-text-primary">
+      {/* Intelligence Bar */}
+      <IntelligenceBar t={t} />
+
+      {/* Navigation */}
+      <Navigation
+        t={t}
+        lang={lang}
+        setLang={setLang}
+        activeSection={activeSection}
+        setActiveSection={setActiveSection}
+      />
+
+      {/* Main Content */}
+      <main>
+        {activeSection === 'dashboard' && (
+          <>
+            <HeroSection t={t} setActiveSection={setActiveSection} />
+            <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
+          </>
+        )}
+
+        {activeSection === 'terminal' && (
+          <QueryTerminal t={t} sourceAlphaData={sourceAlphaData} />
+        )}
+
+        {activeSection === 'sync' && (
+          <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
+        )}
+
+        {activeSection === 'intel' && (
+          <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
+        )}
+      </main>
+
+      {/* Footer */}
+      <Footer t={t} />
+    </div>
+  );
+}
