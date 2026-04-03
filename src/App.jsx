@@ -17,7 +17,7 @@ import { SentinelClient, SentinelError } from './SentinelClient';
 // ═══════════════════════════════════════════════════
 const translations = {
   en: {
-    brand: 'SENTINEL',
+    brand: 'SENTINEL × ROSE ROCKET',
     brandSub: 'Autonomous Market Intelligence',
     tagline: 'Middleware-Free Intelligence Pipeline for Global Logistics',
     nav: { dashboard: 'Dashboard', terminal: 'Query Terminal', sync: 'Sync Status', intel: 'Intel Feed' },
@@ -94,7 +94,7 @@ const translations = {
     switchLang: 'Cambiar a Español',
   },
   es: {
-    brand: 'SENTINEL',
+    brand: 'SENTINEL × ROSE ROCKET',
     brandSub: 'Inteligencia de Mercado Autónoma',
     tagline: 'Pipeline de Inteligencia Sin Middleware para Logística Global',
     nav: { dashboard: 'Panel', terminal: 'Terminal', sync: 'Sincronización', intel: 'Intel Feed' },
@@ -200,8 +200,8 @@ const HighArchyLogo = ({ className = '' }) => (
   <svg viewBox="0 0 200 28" className={className} xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="archGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stopColor="#BC13FE" />
-        <stop offset="100%" stopColor="#FFD700" />
+        <stop offset="0%" stopColor="#C4D600" />
+        <stop offset="100%" stopColor="#FFFFFF" />
       </linearGradient>
     </defs>
     <text x="0" y="20" fontFamily="Inter, sans-serif" fontWeight="800" fontSize="16" fill="url(#archGrad)" letterSpacing="2">HIGH ARCHYTECH</text>
@@ -386,12 +386,12 @@ const HeroSection = ({ t, setActiveSection }) => (
     {/* Background grid */}
     <div className="absolute inset-0 opacity-[0.03]"
       style={{
-        backgroundImage: `linear-gradient(rgba(188,19,254,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(188,19,254,0.5) 1px, transparent 1px)`,
+        backgroundImage: `linear-gradient(rgba(196,214,0,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(196,214,0,0.5) 1px, transparent 1px)`,
         backgroundSize: '60px 60px',
       }}
     />
     {/* Radial glow */}
-    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-radial from-cyber-purple/8 via-transparent to-transparent rounded-full pointer-events-none" />
+    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-radial from-cyber-purple/10 via-transparent to-transparent rounded-full pointer-events-none" />
 
     <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-32">
       <div className="max-w-3xl">
@@ -420,7 +420,7 @@ const HeroSection = ({ t, setActiveSection }) => (
           <button
             id="cta-primary"
             onClick={() => setActiveSection('terminal')}
-            className="group flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyber-purple to-cyber-purple/80 text-white font-mono text-sm font-semibold tracking-wider hover:shadow-[0_0_30px_rgba(188,19,254,0.5)] transition-all duration-500 cursor-pointer"
+            className="group flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyber-purple to-cyber-purple/80 text-obsidian font-mono text-sm font-semibold tracking-wider hover:shadow-[0_0_30px_rgba(196,214,0,0.5)] transition-all duration-500 cursor-pointer"
           >
             <Terminal className="w-4 h-4" />
             {t.hero.cta}
@@ -489,10 +489,10 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
         return (
           <div className={`max-w-3xl mx-auto mb-8 p-4 rounded-xl border transition-all duration-700 ${
             isSyncing
-              ? 'border-[#BC13FE] shadow-[0_0_20px_rgba(188,19,254,0.3)] bg-cyber-purple-dim animate-pulse-glow'
+              ? 'border-[#C4D600] shadow-[0_0_20px_rgba(196,214,0,0.3)] bg-cyber-purple-dim animate-pulse-glow'
               : isOffline
                 ? 'border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.2)] bg-red-500/5'
-                : 'border-[#FFD700]/40 shadow-[0_0_20px_rgba(255,215,0,0.3)] bg-amber-gold-dim'
+                : 'border-[#C4D600]/40 shadow-[0_0_20px_rgba(196,214,0,0.3)] bg-amber-gold-dim'
           }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -501,10 +501,10 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
                 ) : isOffline ? (
                   <WifiOff className="w-4 h-4 text-red-400" />
                 ) : (
-                  <CheckCircle2 className="w-4 h-4 text-[#FFD700]" />
+                  <CheckCircle2 className="w-4 h-4 text-[#C4D600]" />
                 )}
                 <span className={`text-xs font-mono font-bold tracking-[0.15em] transition-colors duration-700 ${
-                  isSyncing ? 'text-cyber-purple' : isOffline ? 'text-red-400' : 'text-[#FFD700]'
+                  isSyncing ? 'text-cyber-purple' : isOffline ? 'text-red-400' : 'text-[#C4D600]'
                 }`}>
                   {connectionStatus}
                 </span>
@@ -512,17 +512,17 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-mono text-text-muted">{t.sync.connectionLabel}</span>
                 <div className={`w-2 h-2 rounded-full transition-colors duration-700 ${
-                  isSyncing ? 'bg-cyber-purple animate-pulse-glow' : isOffline ? 'bg-red-400 animate-pulse' : 'bg-[#FFD700]'
+                  isSyncing ? 'bg-cyber-purple animate-pulse-glow' : isOffline ? 'bg-red-400 animate-pulse' : 'bg-[#C4D600]'
                 }`} />
               </div>
             </div>
             {sourceAlphaData && !isSyncing && (
               <div className={`mt-3 pt-3 border-t flex items-center gap-2 ${
-                isOffline ? 'border-red-500/20' : 'border-[#FFD700]/20'
+                isOffline ? 'border-red-500/20' : 'border-[#C4D600]/20'
               }`}>
-                <Database className={`w-3.5 h-3.5 ${isOffline ? 'text-red-400' : 'text-[#FFD700]'}`} />
+                <Database className={`w-3.5 h-3.5 ${isOffline ? 'text-red-400' : 'text-[#C4D600]'}`} />
                 <span className={`text-[10px] font-mono tracking-wider ${
-                  isOffline ? 'text-red-400/80' : 'text-[#FFD700]/80'
+                  isOffline ? 'text-red-400/80' : 'text-[#C4D600]/80'
                 }`}>
                   {isOffline ? 'CACHED PAYLOAD ACTIVE' : t.sync.payloadReceived} — {Object.keys(sourceAlphaData).length} fields ingested
                 </span>
@@ -535,7 +535,7 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Radial Progress */}
         <div className={`glass-panel-elevated p-8 flex flex-col items-center justify-center transition-all duration-700 ${
-          isSyncing ? 'border-[#BC13FE] shadow-[0_0_20px_rgba(188,19,254,0.3)]' : ''
+          isSyncing ? 'border-[#C4D600] shadow-[0_0_20px_rgba(196,214,0,0.3)]' : ''
         }`}>
           <div className="relative w-40 h-40 mb-6">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
@@ -558,16 +558,16 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
           {/* Synchronized badge */}
           <div className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-700 ${
             isSyncing
-              ? 'border-[#BC13FE]/40 bg-cyber-purple-dim shadow-[0_0_20px_rgba(188,19,254,0.3)]'
-              : 'border-[#FFD700]/40 bg-amber-gold-dim shadow-[0_0_20px_rgba(255,215,0,0.3)]'
+              ? 'border-[#C4D600]/40 bg-cyber-purple-dim shadow-[0_0_20px_rgba(196,214,0,0.3)]'
+              : 'border-[#C4D600]/40 bg-amber-gold-dim shadow-[0_0_20px_rgba(196,214,0,0.3)]'
           }`}>
             {isSyncing ? (
               <RefreshCw className="w-4 h-4 text-cyber-purple animate-spin" />
             ) : (
-              <CheckCircle2 className="w-4 h-4 text-[#FFD700]" />
+              <CheckCircle2 className="w-4 h-4 text-[#C4D600]" />
             )}
             <span className={`text-xs font-mono font-bold tracking-[0.2em] transition-colors duration-700 ${
-              isSyncing ? 'text-cyber-purple' : 'text-[#FFD700]'
+              isSyncing ? 'text-cyber-purple' : 'text-[#C4D600]'
             }`}>
               {isSyncing ? t.sync.initiating : t.sync.status}
             </span>
@@ -717,7 +717,7 @@ const MetricsCard = ({ metrics }) => {
 // ═══════════════════════════════════════════════════
 //  QUERY TERMINAL (v4.0 — Structured JSON Output)
 // ═══════════════════════════════════════════════════
-const QueryTerminal = ({ t, sourceAlphaData }) => {
+const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -782,6 +782,21 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
       // Execute structured query via SentinelClient
       const result = await clientRef.current.query(query);
 
+      // Capture the raw JSON for the split screen!
+      if (setLastPayload) {
+        setLastPayload({
+          status: "SUCCESS",
+          model: "gemini-2.0-flash",
+          timestamp: new Date().toISOString(),
+          data: {
+            narrative: result.narrative.substring(0, 50) + "...", // Truncated for visual impact
+            metrics: result.metrics,
+            confidence: result.confidence,
+            sources: result.sources
+          }
+        });
+      }
+
       setMessages(prev => [...prev, {
         role: 'sentinel',
         content: result.narrative,
@@ -821,10 +836,10 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
       </div>
 
       {/* Terminal Container — Full width with max-width for readability */}
-      <div className={`glass-panel-elevated overflow-hidden max-w-6xl mx-auto border-[#BC13FE]/30 transition-shadow duration-700 flex flex-col ${
+      <div className={`glass-panel-elevated overflow-hidden max-w-6xl mx-auto border-[#C4D600]/30 transition-shadow duration-700 flex flex-col ${
         isSpeaking
-          ? 'shadow-[0_0_40px_rgba(188,19,254,0.5)]'
-          : 'shadow-[0_0_20px_rgba(188,19,254,0.2)]'
+          ? 'shadow-[0_0_40px_rgba(196,214,0,0.5)]'
+          : 'shadow-[0_0_20px_rgba(196,214,0,0.2)]'
       }`} style={{ height: 'calc(100vh - 12rem)', minHeight: '500px' }}>
 
         {/* Terminal Header Bar */}
@@ -843,7 +858,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
                 {[1, 2, 3, 4, 5].map((bar) => (
                   <div
                     key={bar}
-                    className="w-[3px] rounded-full bg-[#BC13FE]"
+                    className="w-[3px] rounded-full bg-[#C4D600]"
                     style={{
                       animation: `sentinel-soundwave 0.8s ease-in-out infinite alternate`,
                       animationDelay: `${bar * 0.1}s`,
@@ -1010,7 +1025,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
         </div>
 
         {/* ═══ Input Area — Spacious textarea with prominent send ═══ */}
-        <form onSubmit={handleSubmit} className="flex items-end gap-3 border-t border-obsidian-border bg-obsidian/40 px-5 py-4 focus-within:shadow-[0_0_30px_rgba(188,19,254,0.15)] transition-shadow duration-500 flex-shrink-0">
+        <form onSubmit={handleSubmit} className="flex items-end gap-3 border-t border-obsidian-border bg-obsidian/40 px-5 py-4 focus-within:shadow-[0_0_30px_rgba(196,214,0,0.15)] transition-shadow duration-500 flex-shrink-0">
           <div className="flex-1 relative">
             <textarea
               ref={inputRef}
@@ -1036,7 +1051,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
             id="terminal-send"
             type="submit"
             disabled={isTyping || !input.trim()}
-            className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-cyber-purple to-cyber-purple/70 text-white hover:shadow-[0_0_20px_rgba(188,19,254,0.5)] transition-all duration-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+            className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-cyber-purple to-cyber-purple/70 text-obsidian hover:shadow-[0_0_20px_rgba(196,214,0,0.5)] transition-all duration-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
           >
             <Send className="w-5 h-5" />
           </button>
@@ -1047,6 +1062,75 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
 };
 
 
+
+// ═══════════════════════════════════════════════════
+//  JSON SYNTAX HIGHLIGHTER (Zero-Dependency)
+// ═══════════════════════════════════════════════════
+const highlightJSON = (jsonStr) => {
+  if (!jsonStr) return '';
+  return jsonStr
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"([^"]+)"(\s*:)/g, '<span class="json-key">"$1"</span><span class="json-colon">$2</span>')
+    .replace(/:\s*"([^"]*)"/g, ': <span class="json-string">"$1"</span>')
+    .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>')
+    .replace(/([[\]{}])/g, '<span class="json-bracket">$1</span>');
+};
+
+// ═══════════════════════════════════════════════════
+//  DEMO PAYLOAD PANEL (Split-Screen Viewer)
+// ═══════════════════════════════════════════════════
+const DemoPayloadPanel = ({ payload }) => {
+  const formatted = useMemo(() => {
+    if (!payload) return null;
+    try {
+      return JSON.stringify(payload, null, 2);
+    } catch { return null; }
+  }, [payload]);
+
+  return (
+    <div className="h-full flex flex-col bg-obsidian border-l border-obsidian-border animate-slide-in-right">
+      {/* Panel Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-obsidian-border bg-obsidian-light/50">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-cyber-purple" />
+          <span className="text-xs font-mono font-bold tracking-[0.15em] text-cyber-purple">API RESPONSE PAYLOAD</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-mono text-text-muted">application/json</span>
+          <div className="w-2 h-2 rounded-full bg-success animate-pulse-glow" />
+        </div>
+      </div>
+
+      {/* JSON Viewer */}
+      <div className="flex-1 overflow-auto p-4">
+        {formatted ? (
+          <pre
+            className="text-xs font-mono leading-relaxed whitespace-pre"
+            dangerouslySetInnerHTML={{ __html: highlightJSON(formatted) }}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-text-muted">
+            <Eye className="w-8 h-8 mb-3 opacity-30" />
+            <p className="text-xs font-mono tracking-wider">AWAITING QUERY RESPONSE</p>
+            <p className="text-[10px] font-mono mt-1 opacity-50">Submit a query to see the raw JSON payload</p>
+          </div>
+        )}
+      </div>
+
+      {/* Panel Footer */}
+      <div className="px-4 py-2 border-t border-obsidian-border bg-obsidian-light/30 flex items-center justify-between">
+        <span className="text-[10px] font-mono text-text-muted">
+          {formatted ? `${formatted.length.toLocaleString()} bytes` : '—'}
+        </span>
+        <span className="text-[10px] font-mono text-cyber-purple/60">
+          gateway.sentinel-engine.tech/v4
+        </span>
+      </div>
+    </div>
+  );
+};
 
 // ═══════════════════════════════════════════════════
 //  FOOTER
@@ -1136,6 +1220,10 @@ export default function App() {
       setLoginLoading(false);
     }
   };
+
+  // --- DEMO MODE STATE (Split-Screen JSON Viewer) ---
+  const [demoMode, setDemoMode] = useState(false);
+  const [lastPayload, setLastPayload] = useState(null);
 
   // --- SENTINEL STATE MANAGEMENT ---
   const [sourceAlphaData, setSourceAlphaData] = useState(null);
@@ -1298,43 +1386,68 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-obsidian text-text-primary">
-      {/* Intelligence Bar */}
-      <IntelligenceBar t={t} />
+    <div className="min-h-screen bg-obsidian text-text-primary flex">
+      {/* ═══ LEFT PANEL: Main Application ═══ */}
+      <div className={`flex-1 min-w-0 flex flex-col transition-all duration-500 ${demoMode ? 'w-1/2' : 'w-full'}`}>
+        {/* Intelligence Bar */}
+        <IntelligenceBar t={t} />
 
-      {/* Navigation */}
-      <Navigation
-        t={t}
-        lang={lang}
-        setLang={setLang}
-        activeSection={activeSection}
-        setActiveSection={setActiveSection}
-      />
+        {/* Navigation */}
+        <Navigation
+          t={t}
+          lang={lang}
+          setLang={setLang}
+          activeSection={activeSection}
+          setActiveSection={setActiveSection}
+        />
 
-      {/* Main Content */}
-      <main>
-        {activeSection === 'dashboard' && (
-          <>
-            <HeroSection t={t} setActiveSection={setActiveSection} />
+        {/* Main Content */}
+        <main className="flex-1">
+          {activeSection === 'dashboard' && (
+            <>
+              <HeroSection t={t} setActiveSection={setActiveSection} />
+              <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
+            </>
+          )}
+
+          {activeSection === 'terminal' && (
+            <QueryTerminal t={t} sourceAlphaData={sourceAlphaData} setLastPayload={setLastPayload} />
+          )}
+
+          {activeSection === 'sync' && (
             <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-          </>
-        )}
+          )}
 
-        {activeSection === 'terminal' && (
-          <QueryTerminal t={t} sourceAlphaData={sourceAlphaData} />
-        )}
+          {activeSection === 'intel' && (
+            <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
+          )}
+        </main>
 
-        {activeSection === 'sync' && (
-          <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-        )}
+        {/* Footer */}
+        <Footer t={t} />
+      </div>
 
-        {activeSection === 'intel' && (
-          <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-        )}
-      </main>
+      {/* ═══ RIGHT PANEL: Demo JSON Payload Viewer ═══ */}
+      {demoMode && (
+        <div className="w-1/2 h-screen sticky top-0">
+          <DemoPayloadPanel payload={lastPayload} />
+        </div>
+      )}
 
-      {/* Footer */}
-      <Footer t={t} />
+      {/* ═══ DEMO MODE TOGGLE (Floating) ═══ */}
+      <button
+        id="demo-toggle"
+        onClick={() => setDemoMode(prev => !prev)}
+        className={`fixed bottom-6 right-6 z-[100] flex items-center gap-2 px-4 py-2.5 rounded-full font-mono text-xs font-bold tracking-wider border transition-all duration-300 cursor-pointer ${
+          demoMode
+            ? 'bg-cyber-purple text-obsidian border-cyber-purple shadow-[0_0_30px_rgba(196,214,0,0.5)]'
+            : 'bg-obsidian-mid text-text-secondary border-obsidian-border hover:border-cyber-purple/50 hover:text-cyber-purple'
+        }`}
+        title="Toggle Developer Demo Mode"
+      >
+        <Eye className="w-4 h-4" />
+        {demoMode ? 'DEMO: ON' : 'DEMO'}
+      </button>
     </div>
   );
 }
