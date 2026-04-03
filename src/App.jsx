@@ -10,6 +10,7 @@ import {
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
+import { SentinelClient, SentinelError } from './SentinelClient';
 
 // ═══════════════════════════════════════════════════
 //  TRANSLATIONS (i18n – EN / ES)
@@ -683,7 +684,38 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
 };
 
 // ═══════════════════════════════════════════════════
-//  QUERY TERMINAL (Gemini API — Enterprise White-Label)
+//  METRICS CARD — Structured Data Display
+// ═══════════════════════════════════════════════════
+const MetricsCard = ({ metrics }) => {
+  if (!metrics || metrics.length === 0) return null;
+
+  const trendConfig = {
+    up: { icon: TrendingUp, color: 'text-green-400', bg: 'bg-green-400/10' },
+    down: { icon: TrendingDown, color: 'text-red-400', bg: 'bg-red-400/10' },
+    stable: { icon: Minus, color: 'text-amber-400', bg: 'bg-amber-400/10' },
+  };
+
+  return (
+    <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {metrics.slice(0, 6).map((metric, i) => {
+        const trend = trendConfig[metric.trend] || trendConfig.stable;
+        const TrendIcon = trend.icon;
+        return (
+          <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-lg border border-obsidian-border/50 ${trend.bg}`}>
+            <TrendIcon className={`w-3.5 h-3.5 flex-shrink-0 ${trend.color}`} />
+            <div className="min-w-0">
+              <div className="text-[10px] text-text-muted truncate">{metric.label}</div>
+              <div className={`text-xs font-mono font-semibold ${trend.color}`}>{metric.value}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════
+//  QUERY TERMINAL (v4.0 — Structured JSON Output)
 // ═══════════════════════════════════════════════════
 const QueryTerminal = ({ t, sourceAlphaData }) => {
   const [messages, setMessages] = useState([]);
@@ -693,66 +725,24 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
-  const audioContextRef = useRef(null);
 
-  // --- SENTINEL SECURE ROUTING ---
-  const SENTINEL_ENDPOINT = import.meta.env.VITE_SENTINEL_ENDPOINT;
+  // --- SENTINEL CLIENT (Headless) ---
+  const clientRef = useRef(null);
+  if (!clientRef.current) {
+    clientRef.current = new SentinelClient(import.meta.env.VITE_SENTINEL_ENDPOINT);
+  }
 
-  // --- VOICE PROTOCOL ---
-  const speakResponse = async (text, base64Audio = null) => {
-    if (!isVoiceActive) return;
+  // --- VOICE PROTOCOL (Web Speech API Only) ---
+  const speakResponse = (text) => {
+    if (!isVoiceActive || !('speechSynthesis' in window)) return;
 
     window.speechSynthesis.cancel();
 
-    // Play native 16-bit PCM Audio if provided by Gemini 1.5 Pro
-    if (base64Audio) {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      
-      setIsSpeaking(true);
-      try {
-        const audioCtx = audioContextRef.current;
-        const binaryString = window.atob(base64Audio);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        
-        // Strict Gemini Native Audio parsing: 16-bit PCM, 24kHz
-        const numSamples = bytes.length / 2;
-        const audioBuffer = audioCtx.createBuffer(1, numSamples, 24000);
-        const channelData = audioBuffer.getChannelData(0);
-        const dataView = new DataView(bytes.buffer);
-        
-        for (let i = 0; i < numSamples; i++) {
-            const int16 = dataView.getInt16(i * 2, true);
-            channelData[i] = int16 / 32768.0;
-        }
-        
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioCtx.destination);
-        source.onended = () => setIsSpeaking(false);
-        source.start(0);
-      } catch (err) {
-        console.error("Native Audio Protocol Error:", err);
-        setIsSpeaking(false);
-      }
-      return;
-    }
-
-    if (!('speechSynthesis' in window)) return;
-
-    // Fallback logic
     const cleanText = text.replace(/[*#_`~]/g, '');
-
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.rate = 1.05;
     utterance.pitch = 0.9;
 
-    // Attempt to find a premium English voice
     const voices = window.speechSynthesis.getVoices();
     const systemVoice = voices.find(v => v.name.includes('Google') || v.name.includes('Samantha') || v.lang === 'en-GB');
     if (systemVoice) utterance.voice = systemVoice;
@@ -789,51 +779,21 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
     setIsTyping(true);
 
     try {
-      // THE GROUND TRUTH PAYLOAD is now natively handled by the Cloud Function via Firestore context
-      const payload = {
-        query: query,
-      };
-
-      // Acquire a fresh Firebase ID token from the SDK's secure credential store.
-      // Firebase Auth manages token refresh and storage internally —
-      // tokens are NEVER stored in localStorage or sessionStorage.
-      //
-      // CRITICAL: authStateReady() gates on Firebase's async hydration from IndexedDB.
-      // Without this, auth.currentUser is null on cold load — a synchronous race condition.
-      const auth = getAuth();
-      await auth.authStateReady();
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error('Authentication required. Please sign in to access the Sentinel Engine.');
-      }
-      const idToken = await currentUser.getIdToken(/* forceRefresh */ false);
-
-      const response = await fetch(SENTINEL_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.data) {
-        throw new Error(data.message || data.error || 'Invalid API response from Sentinel Engine');
-      }
-
-      const aiResponse = data.data;
+      // Execute structured query via SentinelClient
+      const result = await clientRef.current.query(query);
 
       setMessages(prev => [...prev, {
         role: 'sentinel',
-        content: aiResponse,
+        content: result.narrative,
+        metrics: result.metrics,
+        confidence: result.confidence,
+        sources: result.sources,
         type: 'response',
         timestamp: new Date().toLocaleTimeString(),
       }]);
 
-      // Engage Voice Protocol (Fallback to TTS if no native audio)
-      speakResponse(aiResponse, data.audioData);
+      // Engage Voice Protocol (Web Speech API)
+      speakResponse(result.narrative);
     } catch (error) {
       console.error('Sentinel Engine API Error:', error);
       setMessages(prev => [...prev, {
@@ -850,11 +810,6 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
     setInput(suggestion);
     setTimeout(() => document.getElementById('terminal-send')?.click(), 100);
   };
-
-  // --- SAFE MARKDOWN RENDERER (ReactMarkdown + DOMPurify) ---
-  // Replaces the previous regex-based renderer that used dangerouslySetInnerHTML.
-  // DOMPurify strips any injected HTML/script tags BEFORE ReactMarkdown parses.
-  // ReactMarkdown converts markdown to React elements — no innerHTML anywhere.
 
   return (
     <section id="query-terminal" className="w-full px-4 sm:px-6 lg:px-8 py-6" style={{ minHeight: 'calc(100vh - 4rem)' }}>
@@ -963,21 +918,37 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
                 </div>
               )}
 
-              {/* Sentinel AI response — left-aligned with accent bar */}
+              {/* Sentinel AI response — left-aligned with accent bar + metrics */}
               {msg.type === 'response' && (
                 <div className="flex justify-start">
                   <div className="max-w-[85%] pl-5 pr-6 py-4 border-l-[3px] border-cyber-purple/60 bg-obsidian-mid/30 rounded-r-xl">
                     <div className="flex items-center gap-2 mb-3">
                       <Shield className="w-4 h-4 text-cyber-purple" />
                       <span className="text-[11px] text-cyber-purple tracking-[0.15em] font-semibold">SENTINEL RESPONSE</span>
+                      {msg.confidence != null && (
+                        <span className="text-[9px] text-amber-gold bg-amber-gold-dim px-1.5 py-0.5 rounded-full font-mono">
+                          {Math.round(msg.confidence * 100)}% confidence
+                        </span>
+                      )}
                       <span className="text-[10px] text-text-muted ml-auto">— {msg.timestamp}</span>
                     </div>
                     <div className="text-text-primary/90 text-sm leading-relaxed prose prose-invert prose-sm prose-p:my-1 prose-headings:text-cyber-purple prose-strong:text-text-primary prose-code:text-cyber-purple prose-code:bg-cyber-purple-dim prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-code:font-mono prose-a:text-cyber-purple max-w-none">
                       <ReactMarkdown>{DOMPurify.sanitize(msg.content)}</ReactMarkdown>
                     </div>
-                    <div className="mt-4 pt-3 border-t border-obsidian-border/30 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-gold" />
-                      <span className="text-[10px] text-amber-gold">{t.terminal.dataAuthority}</span>
+
+                    {/* Structured Metrics Cards */}
+                    <MetricsCard metrics={msg.metrics} />
+
+                    <div className="mt-4 pt-3 border-t border-obsidian-border/30 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-gold" />
+                        <span className="text-[10px] text-amber-gold">{t.terminal.dataAuthority}</span>
+                      </div>
+                      {msg.sources && msg.sources.length > 0 && (
+                        <span className="text-[9px] text-text-muted">
+                          Sources: {msg.sources.join(' • ')}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1161,10 +1132,13 @@ export default function App() {
   const [connectionStatus, setConnectionStatus] = useState('INITIATING HANDSHAKE...');
   const [isSyncing, setIsSyncing] = useState(true);
 
-  // Your Proprietary Sovereign Endpoint
-  const SENTINEL_ENDPOINT = import.meta.env.VITE_SENTINEL_ENDPOINT;
+  // Headless Sentinel Client (singleton)
+  const sentinelClientRef = useRef(null);
+  if (!sentinelClientRef.current) {
+    sentinelClientRef.current = new SentinelClient(import.meta.env.VITE_SENTINEL_ENDPOINT);
+  }
 
-  // --- AUTONOMOUS DATA PIPELINE (Offline-Aware) ---
+  // --- AUTONOMOUS DATA PIPELINE (Offline-Aware, via SentinelClient) ---
   useEffect(() => {
     const synchronizeSourceAlpha = async () => {
       setIsSyncing(true);
@@ -1179,39 +1153,17 @@ export default function App() {
       setConnectionStatus(translations[lang]?.sync?.verifying || 'VERIFYING POST-QUANTUM ROUTE...');
 
       try {
-        // Health-check: Ping the CF to validate the route is active.
-        // With auth enabled, an unauthenticated ping returns 401 (SENTINEL_AUTH_MISSING).
-        // An authenticated ping with empty body returns 400 (SENTINEL_EMPTY_QUERY).
-        // Both confirm the tunnel is operational without consuming LLM tokens.
-        const auth = getAuth();
-        await auth.authStateReady();
-        const user = auth.currentUser;
-        const pingHeaders = { 'Content-Type': 'application/json' };
-        if (user) {
-          const token = await user.getIdToken(false);
-          pingHeaders['Authorization'] = `Bearer ${token}`;
-        }
+        const health = await sentinelClientRef.current.healthCheck();
 
-        const response = await fetch(SENTINEL_ENDPOINT, {
-          method: 'POST',
-          headers: pingHeaders,
-          body: JSON.stringify({})
-        });
-        
-        const data = await response.json();
-
-        // 401 = auth gate is alive (unauthenticated ping), 400 = reached validation layer (authenticated ping)
-        if ((response.status === 401 && data.code === 'SENTINEL_AUTH_MISSING') ||
-            (response.status === 400 && data.code === 'SENTINEL_EMPTY_QUERY')) {
-          setSourceAlphaData({ routing: "VPC_INTERNAL", data_authority: "GCP_FIRESTORE_NATIVE", zero_trust: "VERIFIED" });
+        if (health.online) {
+          setSourceAlphaData(health.details);
           setConnectionStatus(translations[lang]?.sync?.verified || 'HANDSHAKE VERIFIED: AUTHORITY STAMP < 1HR');
-          console.log("Sentinel Engine: Secure route established. Sovereign inference ready.");
+          console.log('Sentinel Engine: Secure route established. Sovereign inference ready.');
         } else {
-          throw new Error("Handshake Failed: Invalid Route Signature");
+          throw new Error('Handshake Failed: Invalid Route Signature');
         }
       } catch (error) {
-        console.error("Sentinel Engine Error:", error);
-        // If we're offline (detected during fetch failure), the SW may have served cached data
+        console.error('Sentinel Engine Error:', error);
         if (!navigator.onLine) {
           setConnectionStatus('OFFLINE: SERVING CACHED INTELLIGENCE (AUTHORITY COMPROMISED)');
         } else {

@@ -1,11 +1,11 @@
 /**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (v2.1 White Label)
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (v4.0 GCP-Native)
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20+) — Gen2
  * 
- * Inference: Google Gen AI (Gemini 2.0 Flash)
- * Context:   Cloud Firestore (sentinel_data)
- * Security:  Zero-Trust CORS, Structured Audit Logging
+ * Inference: Google Gen AI (Gemini 2.0 Flash) — Structured JSON Output
+ * Context:   Cloud Firestore (sentinel_data) — Schema-Validated
+ * Security:  Zero-Trust CORS, JWT + tenant_id, Rate Limiting
  * 
  * Propiedad de High ArchyTech Solutions.
  * Arquitectura diseñada para: ReshapeX, Fracttal, DHL, Maersk.
@@ -62,15 +62,53 @@ const RATE_LIMIT_MAX_REQUESTS = 5;
 const requestStamps = new Map(); // key: uid, value: [timestamps]
 
 // ─────────────────────────────────────────────────────
-//  SYSTEM PROMPT — Sovereign Intelligence Persona
+//  STRUCTURED RESPONSE SCHEMA — Logistics Intelligence
+// ─────────────────────────────────────────────────────
+
+const LOGISTICS_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    narrative: {
+      type: 'STRING',
+      description: 'Markdown-formatted analysis with bullet points, metrics, and actionable recommendations.',
+    },
+    metrics: {
+      type: 'ARRAY',
+      description: 'Extracted key data points from the analysis.',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          label: { type: 'STRING', description: 'Metric name (e.g., "Shanghai-Rotterdam Rate")' },
+          value: { type: 'STRING', description: 'Metric value with units (e.g., "$2,340/FEU")' },
+          trend: { type: 'STRING', description: 'Direction indicator: up, down, or stable' },
+          confidence: { type: 'NUMBER', description: 'Confidence in this metric (0.0–1.0)' },
+        },
+        required: ['label', 'value'],
+      },
+    },
+    confidence: {
+      type: 'NUMBER',
+      description: 'Overall confidence score for this response (0.0–1.0)',
+    },
+    sources: {
+      type: 'ARRAY',
+      description: 'Data sources used for this response.',
+      items: { type: 'STRING' },
+    },
+  },
+  required: ['narrative', 'confidence', 'sources'],
+};
+
+// ─────────────────────────────────────────────────────
+//  SYSTEM PROMPT — Sovereign Intelligence Persona (v4.0)
 // ─────────────────────────────────────────────────────
 
 const buildSystemPrompt = (contextPayload) => `
 SISTEMA: Sentinel Engine — Sovereign Intelligence Layer.
-ESTADO: White Label Infrastructure v2.1.
+ESTADO: GCP-Native Infrastructure v4.0.
 ARQUITECTO: High ArchyTech Solutions.
 
-CONTEXTO OPERATIVO:
+CONTEXTO OPERATIVO (DATOS ESTRUCTURADOS):
 ${contextPayload}
 
 INSTRUCCIÓN:
@@ -83,11 +121,14 @@ DIRECTIVAS:
 2. Responde con datos concretos: cifras, porcentajes, tendencias, y benchmarks.
 3. Si los datos disponibles no cubren la consulta, indícalo explícitamente.
    No inventes data points bajo ninguna circunstancia.
-4. Formato: estructura clara con bullet points, métricas destacadas, y recomendaciones accionables.
-5. Tono: ejecutivo, técnico, directo. Cero ambigüedad. Cero redundancia.
-6. Idioma: Responde en el mismo idioma de la consulta del usuario.
+4. El campo "narrative" debe usar markdown con bullet points, métricas destacadas, y recomendaciones accionables.
+5. El campo "metrics" debe extraer los KPIs más relevantes de tu análisis.
+6. El campo "confidence" es tu grado de certeza (0.0–1.0) basado en la cobertura de datos.
+7. El campo "sources" lista las fuentes de datos utilizadas.
+8. Tono: ejecutivo, técnico, directo. Cero ambigüedad. Cero redundancia.
+9. Idioma: Responde en el mismo idioma de la consulta del usuario.
 
-CAPA DE SEGURIDAD: AES-256-GCM-ZDF | Post-Quantum Ready
+FORMATO DE SALIDA: JSON estricto siguiendo el schema proporcionado.
 `;
 
 // ─────────────────────────────────────────────────────
@@ -287,6 +328,8 @@ functions.http('sentinelInference', async (req, res) => {
         });
       }
 
+      // Cache the Firestore content — NOT the function response.
+      // This prevents stale LLM output from being served.
       const contextData = doc.data();
       contextPayload = typeof contextData.content === 'string'
         ? contextData.content
@@ -298,35 +341,40 @@ functions.http('sentinelInference', async (req, res) => {
     // ── Build Prompt & Execute Inference ──
     const systemPrompt = buildSystemPrompt(contextPayload);
 
-    // ── Execute Sovereign Inference ──
+    // ── Execute Sovereign Inference (Structured JSON Output) ──
     const result = await ai.models.generateContent({
-      model: 'gemini-1.5-pro',
+      model: 'gemini-2.0-flash',
       contents: query.trim(),
       config: {
         systemInstruction: systemPrompt,
         temperature: 0.1,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 4096,
         topP: 0.8,
-        responseModalities: ["TEXT", "AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: "Puck"
-            }
-          }
-        }
-      }
+        responseMimeType: 'application/json',
+        responseSchema: LOGISTICS_RESPONSE_SCHEMA,
+      },
     });
 
-    const inferenceOutput = result.text;
-
-    // Search for the generated audio payload in the content parts
-    let audioBase64 = null;
-    if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts) {
-      const audioPart = result.candidates[0].content.parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('audio/'));
-      if (audioPart) {
-        audioBase64 = audioPart.inlineData.data;
-      }
+    // Parse the structured JSON response from Gemini
+    let structuredResponse;
+    try {
+      structuredResponse = JSON.parse(result.text);
+    } catch (parseError) {
+      // Fallback: if Gemini returns non-JSON despite the schema constraint,
+      // wrap the raw text in the expected structure.
+      console.warn(JSON.stringify({
+        severity: 'WARNING',
+        event: 'SENTINEL_JSON_PARSE_FALLBACK',
+        requestId,
+        rawLength: result.text?.length || 0,
+        timestamp: new Date().toISOString(),
+      }));
+      structuredResponse = {
+        narrative: result.text || 'No response generated.',
+        metrics: [],
+        confidence: 0.5,
+        sources: ['Sentinel Engine (unstructured fallback)'],
+      };
     }
 
     // ── Structured Audit Log: Inference Complete ──
@@ -334,22 +382,22 @@ functions.http('sentinelInference', async (req, res) => {
       severity: 'INFO',
       event: 'SENTINEL_INFERENCE_COMPLETE',
       requestId,
-      clientContext: contextKey,
-      model: 'gemini-1.5-pro-001',
-      outputLength: inferenceOutput.length,
+      contextKey,
+      model: 'gemini-2.0-flash',
+      outputLength: result.text?.length || 0,
+      confidence: structuredResponse.confidence,
+      metricsCount: structuredResponse.metrics?.length || 0,
       timestamp: new Date().toISOString(),
       latencyMs: Date.now() - new Date(requestTimestamp).getTime(),
     }));
 
-    // ── Success Response ──
+    // ── Success Response (Structured) ──
     return res.status(200).json({
       status: 'SUCCESS',
-      model: 'gemini-1.5-pro',
+      model: 'gemini-2.0-flash',
       timestamp: new Date().toISOString(),
-      data: inferenceOutput,
-      audioData: audioBase64,  // Native API PCM base64 encoded audio
-      security_layer: 'AES-256-GCM-ZDF',
-      infrastructure: 'Google Gen AI SDK (Server-Side Direct)',
+      data: structuredResponse,
+      infrastructure: 'Google Gen AI SDK — Structured JSON Output',
       requestId,
     });
 
