@@ -63,7 +63,7 @@ const translations = {
       title: 'Query Terminal',
       subtitle: 'Interact with Sentinel Engine',
       placeholder: 'Enter intelligence query...',
-      welcome: 'SENTINEL ENGINE v3.2.1 — Post-Quantum Handshake Verified',
+      welcome: 'SENTINEL ENGINE v4.1 — Data Moat Active (BigQuery VECTOR_RAG)',
       ready: 'System ready. Type a logistics query to begin.',
       thinking: 'Processing intelligence query...',
       dataAuthority: 'Response authority based on data < 1hr old',
@@ -140,7 +140,7 @@ const translations = {
       title: 'Terminal de Consultas',
       subtitle: 'Interactuar con Sentinel Engine',
       placeholder: 'Ingrese consulta de inteligencia...',
-      welcome: 'SENTINEL ENGINE v3.2.1 — Handshake Post-Cuántico Verificado',
+      welcome: 'SENTINEL ENGINE v4.1 — Data Moat Activo (BigQuery VECTOR_RAG)',
       ready: 'Sistema listo. Escriba una consulta logística para comenzar.',
       thinking: 'Procesando consulta de inteligencia...',
       dataAuthority: 'Autoridad de respuesta basada en datos < 1hr',
@@ -788,6 +788,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
         metrics: result.metrics,
         confidence: result.confidence,
         sources: result.sources,
+        dataAuthority: result.dataAuthority,
         type: 'response',
         timestamp: new Date().toLocaleTimeString(),
       }]);
@@ -834,7 +835,7 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
               <div className="w-3 h-3 rounded-full bg-amber-400/60" />
               <div className="w-3 h-3 rounded-full bg-green-400/60" />
             </div>
-            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://gemini-core/v4.0.0</span>
+            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://data-moat/v4.1.0</span>
 
             {/* Soundwave Visualizer */}
             {isSpeaking && (
@@ -939,13 +940,22 @@ const QueryTerminal = ({ t, sourceAlphaData }) => {
                     {/* Structured Metrics Cards */}
                     <MetricsCard metrics={msg.metrics} />
 
-                    <div className="mt-4 pt-3 border-t border-obsidian-border/30 flex items-center justify-between">
+                    <div className="mt-4 pt-3 border-t border-obsidian-border/30 flex flex-wrap items-center gap-3">
                       <div className="flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5 text-amber-gold" />
                         <span className="text-[10px] text-amber-gold">{t.terminal.dataAuthority}</span>
                       </div>
+                      {msg.dataAuthority && (
+                        <span className={`text-[9px] font-mono font-bold tracking-wider px-2 py-0.5 rounded-full border ${
+                          msg.dataAuthority === 'GCP_BIGQUERY_VECTOR_RAG'
+                            ? 'text-cyber-purple border-cyber-purple/40 bg-cyber-purple-dim'
+                            : 'text-amber-400 border-amber-400/30 bg-amber-400/10'
+                        }`}>
+                          {msg.dataAuthority}
+                        </span>
+                      )}
                       {msg.sources && msg.sources.length > 0 && (
-                        <span className="text-[9px] text-text-muted">
+                        <span className="text-[9px] text-text-muted ml-auto">
                           Sources: {msg.sources.join(' • ')}
                         </span>
                       )}

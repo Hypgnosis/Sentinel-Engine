@@ -1,10 +1,12 @@
 /**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (v4.0 GCP-Native)
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (v4.1 Data Moat)
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20+) — Gen2
  * 
  * Inference: Google Gen AI (Gemini 2.0 Flash) — Structured JSON Output
- * Context:   Cloud Firestore (sentinel_data) — Schema-Validated
+ * Context:   BigQuery VECTOR_SEARCH (sentinel_warehouse) — RAG Pipeline
+ * Fallback:  Cloud Firestore (sentinel_data) — Legacy compat
+ * Embeddings: Vertex AI text-embedding-004 (768 dim)
  * Security:  Zero-Trust CORS, JWT + tenant_id, Rate Limiting
  * 
  * Propiedad de High ArchyTech Solutions.
@@ -14,6 +16,7 @@
 
 const functions = require('@google-cloud/functions-framework');
 const { GoogleGenAI } = require('@google/genai');
+const { BigQuery } = require('@google-cloud/bigquery');
 const { Firestore } = require('@google-cloud/firestore');
 const admin = require('firebase-admin');
 
@@ -31,6 +34,19 @@ if (!admin.apps.length) {
 // Force production sovereign project to inherit Vertex AI Enterprise SLAs
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'ha-sentinel-core-prod';
 const GCP_REGION     = process.env.GCP_REGION     || 'us-central1';
+const BQ_DATASET     = process.env.BQ_DATASET     || 'sentinel_warehouse';
+const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_DIM   = 768;
+const VECTOR_TOP_K    = 15;  // Top-K results from each VECTOR_SEARCH
+
+/**
+ * Data authority mode.
+ *   'BIGQUERY_VECTOR_RAG' — Production mode. Embeds the query, runs VECTOR_SEARCH.
+ *   'FIRESTORE_LEGACY'    — Fallback if BigQuery tables are unpopulated.
+ * 
+ * Automatically detected: if BigQuery VECTOR_SEARCH returns 0 results,
+ * the function falls back to the Firestore legacy path.
+ */
 
 /**
  * Allowed CORS origins — Zero Trust.
@@ -49,13 +65,15 @@ const ALLOWED_ORIGINS = [
 //  SERVICE INITIALIZATION (Cold-start optimized)
 // ─────────────────────────────────────────────────────
 
+const bigquery  = new BigQuery({ projectId: GCP_PROJECT_ID });
 const firestore = new Firestore({ projectId: GCP_PROJECT_ID });
 
 let ai = null;
 
 // ── In-Memory Global Caching & Throttling ──
 const CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutes
-const sourceAlphaCache = new Map(); // key: contextKey, value: { payload, timestamp }
+const vectorResultsCache = new Map(); // key: queryHash, value: { payload, timestamp }
+const sourceAlphaCache   = new Map(); // key: contextKey, value: { payload, timestamp } (legacy)
 
 const RATE_LIMIT_WINDOW_MS = 1000 * 10; // 10 seconds
 const RATE_LIMIT_MAX_REQUESTS = 5;
@@ -95,20 +113,25 @@ const LOGISTICS_RESPONSE_SCHEMA = {
       description: 'Data sources used for this response.',
       items: { type: 'STRING' },
     },
+    dataAuthority: {
+      type: 'STRING',
+      description: 'The data source that powered this response: GCP_BIGQUERY_VECTOR_RAG or FIRESTORE_LEGACY.',
+    },
   },
   required: ['narrative', 'confidence', 'sources'],
 };
 
 // ─────────────────────────────────────────────────────
-//  SYSTEM PROMPT — Sovereign Intelligence Persona (v4.0)
+//  SYSTEM PROMPT — Sovereign Intelligence Persona (v4.1)
 // ─────────────────────────────────────────────────────
 
-const buildSystemPrompt = (contextPayload) => `
+const buildSystemPrompt = (contextPayload, dataAuthority) => `
 SISTEMA: Sentinel Engine — Sovereign Intelligence Layer.
-ESTADO: GCP-Native Infrastructure v4.0.
+ESTADO: GCP-Native Infrastructure v4.1 (Data Moat Architecture).
 ARQUITECTO: High ArchyTech Solutions.
+DATA AUTHORITY: ${dataAuthority}
 
-CONTEXTO OPERATIVO (DATOS ESTRUCTURADOS):
+CONTEXTO OPERATIVO (DATOS ESTRUCTURADOS — VECTORIZED RETRIEVAL):
 ${contextPayload}
 
 INSTRUCCIÓN:
@@ -125,11 +148,145 @@ DIRECTIVAS:
 5. El campo "metrics" debe extraer los KPIs más relevantes de tu análisis.
 6. El campo "confidence" es tu grado de certeza (0.0–1.0) basado en la cobertura de datos.
 7. El campo "sources" lista las fuentes de datos utilizadas.
-8. Tono: ejecutivo, técnico, directo. Cero ambigüedad. Cero redundancia.
-9. Idioma: Responde en el mismo idioma de la consulta del usuario.
+8. El campo "dataAuthority" DEBE ser exactamente: "${dataAuthority}".
+9. Tono: ejecutivo, técnico, directo. Cero ambigüedad. Cero redundancia.
+10. Idioma: Responde en el mismo idioma de la consulta del usuario.
 
 FORMATO DE SALIDA: JSON estricto siguiendo el schema proporcionado.
 `;
+
+// ─────────────────────────────────────────────────────
+//  VECTOR_SEARCH — BigQuery RAG Retrieval
+// ─────────────────────────────────────────────────────
+
+/**
+ * Embed the user's query using Vertex AI text-embedding-004 (RETRIEVAL_QUERY),
+ * then execute VECTOR_SEARCH across all four warehouse tables.
+ * Returns the top-K semantically relevant rows as a JSON context block.
+ * 
+ * @param {string} queryText - The user's natural language query
+ * @param {object} genaiClient - Initialized GoogleGenAI client
+ * @returns {Promise<{contextPayload: string, resultCount: number}>}
+ */
+async function vectorSearchRetrieval(queryText, genaiClient) {
+  // Step 1: Embed the user query
+  const embeddingResponse = await genaiClient.models.embedContent({
+    model: EMBEDDING_MODEL,
+    contents: queryText,
+    config: {
+      taskType: 'RETRIEVAL_QUERY',
+      outputDimensionality: EMBEDDING_DIM,
+    },
+  });
+
+  const queryVector = embeddingResponse.embeddings[0].values;
+  const vectorLiteral = `[${queryVector.join(',')}]`;
+
+  // Step 2: Run VECTOR_SEARCH on all four tables (parallel)
+  const tableConfigs = [
+    {
+      table: 'freight_indices',
+      displayColumns: ['source', 'route_origin', 'route_destination', 'rate_usd', 'week_over_week_change', 'trend', 'narrative_context', 'ingested_at'],
+      label: 'Freight Indices',
+    },
+    {
+      table: 'port_congestion',
+      displayColumns: ['source', 'port_name', 'vessels_at_anchor', 'avg_wait_days', 'severity_level', 'narrative_context', 'ingested_at'],
+      label: 'Port Congestion',
+    },
+    {
+      table: 'maritime_chokepoints',
+      displayColumns: ['source', 'chokepoint_name', 'status', 'vessel_queue', 'transit_delay_hours', 'narrative_context', 'ingested_at'],
+      label: 'Maritime Chokepoints',
+    },
+    {
+      table: 'risk_matrix',
+      displayColumns: ['source', 'risk_factor', 'severity', 'probability', 'impact_window', 'narrative_context', 'ingested_at'],
+      label: 'Risk Matrix',
+    },
+  ];
+
+  const searchPromises = tableConfigs.map(async ({ table, displayColumns, label }) => {
+    const query = `
+      SELECT
+        base.${displayColumns.join(', base.')},
+        distance
+      FROM VECTOR_SEARCH(
+        TABLE \`${GCP_PROJECT_ID}.${BQ_DATASET}.${table}\`,
+        'embedding',
+        (SELECT ${vectorLiteral} AS embedding),
+        top_k => ${VECTOR_TOP_K},
+        distance_type => 'COSINE'
+      )
+      WHERE base.ingested_at > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+      ORDER BY distance ASC
+    `;
+
+    try {
+      const [rows] = await bigquery.query({ query, location: 'US' });
+      return { label, rows, error: null };
+    } catch (err) {
+      // Table might not exist yet — graceful degradation
+      return { label, rows: [], error: err.message };
+    }
+  });
+
+  const results = await Promise.all(searchPromises);
+
+  // Step 3: Assemble context payload from top-K results
+  let totalResults = 0;
+  const contextSections = [];
+
+  for (const { label, rows, error } of results) {
+    if (error) {
+      contextSections.push(`\n── ${label} ── [ERROR: ${error}]`);
+      continue;
+    }
+    if (rows.length === 0) continue;
+
+    totalResults += rows.length;
+    const sectionLines = rows.map((row, idx) => {
+      // Remove the distance field from the display payload
+      const { distance, ...displayRow } = row;
+      return `  [${idx + 1}] (relevance: ${(1 - distance).toFixed(3)}) ${JSON.stringify(displayRow)}`;
+    });
+
+    contextSections.push(`\n── ${label} (${rows.length} results) ──\n${sectionLines.join('\n')}`);
+  }
+
+  const contextPayload = contextSections.length > 0
+    ? contextSections.join('\n')
+    : '';
+
+  return { contextPayload, resultCount: totalResults };
+}
+
+// ─────────────────────────────────────────────────────
+//  LEGACY FIRESTORE RETRIEVAL (Fallback)
+// ─────────────────────────────────────────────────────
+
+async function firestoreLegacyRetrieval(contextKey) {
+  const nowMs = Date.now();
+
+  if (sourceAlphaCache.has(contextKey) && (nowMs - sourceAlphaCache.get(contextKey).timestamp) < CACHE_TTL_MS) {
+    return { contextPayload: sourceAlphaCache.get(contextKey).payload, cached: true };
+  }
+
+  const sourceAlphaRef = firestore.collection('sentinel_data').doc(contextKey);
+  const doc = await sourceAlphaRef.get();
+
+  if (!doc.exists) {
+    return { contextPayload: null, cached: false };
+  }
+
+  const contextData = doc.data();
+  const contextPayload = typeof contextData.content === 'string'
+    ? contextData.content
+    : JSON.stringify(contextData.content || contextData, null, 2);
+
+  sourceAlphaCache.set(contextKey, { payload: contextPayload, timestamp: nowMs });
+  return { contextPayload, cached: false };
+}
 
 // ─────────────────────────────────────────────────────
 //  CORS HANDLER — Zero Trust Origin Validation
@@ -299,47 +456,100 @@ functions.http('sentinelInference', async (req, res) => {
       timestamp: requestTimestamp,
     }));
 
-    // ── Retrieve Source Alpha (Cache-Aware) ──
-    const nowMsForCache = Date.now();
+    // ═══════════════════════════════════════════════════
+    //  RAG CONTEXT RETRIEVAL — BigQuery VECTOR_SEARCH
+    //  with automatic Firestore legacy fallback
+    // ═══════════════════════════════════════════════════
+
     let contextPayload;
+    let dataAuthority;
 
-    if (sourceAlphaCache.has(contextKey) && (nowMsForCache - sourceAlphaCache.get(contextKey).timestamp) < CACHE_TTL_MS) {
-      contextPayload = sourceAlphaCache.get(contextKey).payload;
-      console.log(JSON.stringify({ severity: 'DEBUG', event: 'CACHE_HIT', contextKey, requestId }));
-    } else {
-      console.log(JSON.stringify({ severity: 'DEBUG', event: 'CACHE_MISS', contextKey, requestId }));
-      const sourceAlphaRef = firestore.collection('sentinel_data').doc(contextKey);
-      const doc = await sourceAlphaRef.get();
+    // Primary path: BigQuery VECTOR_SEARCH (Production)
+    try {
+      console.log(JSON.stringify({
+        severity: 'INFO',
+        event: 'VECTOR_SEARCH_START',
+        requestId,
+        queryPreview: query.trim().substring(0, 100),
+        timestamp: new Date().toISOString(),
+      }));
 
-      if (!doc.exists) {
+      const vectorResult = await vectorSearchRetrieval(query.trim(), ai);
+
+      if (vectorResult.resultCount > 0) {
+        contextPayload = vectorResult.contextPayload;
+        dataAuthority = 'GCP_BIGQUERY_VECTOR_RAG';
+
+        console.log(JSON.stringify({
+          severity: 'INFO',
+          event: 'VECTOR_SEARCH_SUCCESS',
+          requestId,
+          resultCount: vectorResult.resultCount,
+          dataAuthority,
+          timestamp: new Date().toISOString(),
+        }));
+      } else {
+        // No results — BigQuery tables may be empty. Fall through to Firestore.
+        console.log(JSON.stringify({
+          severity: 'WARNING',
+          event: 'VECTOR_SEARCH_EMPTY',
+          requestId,
+          message: 'BigQuery VECTOR_SEARCH returned 0 results. Falling back to Firestore.',
+          timestamp: new Date().toISOString(),
+        }));
+        contextPayload = null; // triggers fallback below
+      }
+    } catch (vectorError) {
+      // BigQuery error (table not found, permissions, etc.) — degrade to Firestore
+      console.error(JSON.stringify({
+        severity: 'WARNING',
+        event: 'VECTOR_SEARCH_FALLBACK',
+        requestId,
+        error: vectorError.message,
+        message: 'BigQuery VECTOR_SEARCH failed. Falling back to Firestore legacy path.',
+        timestamp: new Date().toISOString(),
+      }));
+      contextPayload = null;
+    }
+
+    // Fallback path: Firestore legacy (if VECTOR_SEARCH unavailable)
+    if (!contextPayload) {
+      const firestoreResult = await firestoreLegacyRetrieval(contextKey);
+
+      if (!firestoreResult.contextPayload) {
         console.error(JSON.stringify({
           severity: 'ERROR',
           event: 'SOURCE_ALPHA_NOT_FOUND',
           requestId,
           contextKey,
+          message: 'Both BigQuery VECTOR_SEARCH and Firestore legacy path failed. No context available.',
           timestamp: requestTimestamp,
         }));
 
         return res.status(503).json({
           error: 'Infrastructure Data Integrity Breach',
           code: 'SOURCE_ALPHA_MISSING',
-          message: `Source Alpha context document '${contextKey}' not found in Firestore. Data pipeline may require re-initialization.`,
+          message: `No context data available. BigQuery warehouse may be unpopulated and Firestore document '${contextKey}' not found. Run the ETL pipeline.`,
           requestId,
         });
       }
 
-      // Cache the Firestore content — NOT the function response.
-      // This prevents stale LLM output from being served.
-      const contextData = doc.data();
-      contextPayload = typeof contextData.content === 'string'
-        ? contextData.content
-        : JSON.stringify(contextData.content || contextData, null, 2);
+      contextPayload = firestoreResult.contextPayload;
+      dataAuthority = 'FIRESTORE_LEGACY';
 
-      sourceAlphaCache.set(contextKey, { payload: contextPayload, timestamp: nowMsForCache });
+      console.log(JSON.stringify({
+        severity: 'INFO',
+        event: 'FIRESTORE_LEGACY_ACTIVE',
+        requestId,
+        contextKey,
+        cached: firestoreResult.cached,
+        dataAuthority,
+        timestamp: new Date().toISOString(),
+      }));
     }
 
     // ── Build Prompt & Execute Inference ──
-    const systemPrompt = buildSystemPrompt(contextPayload);
+    const systemPrompt = buildSystemPrompt(contextPayload, dataAuthority);
 
     // ── Execute Sovereign Inference (Structured JSON Output) ──
     const result = await ai.models.generateContent({
@@ -374,8 +584,12 @@ functions.http('sentinelInference', async (req, res) => {
         metrics: [],
         confidence: 0.5,
         sources: ['Sentinel Engine (unstructured fallback)'],
+        dataAuthority,
       };
     }
+
+    // Ensure dataAuthority is in the response
+    structuredResponse.dataAuthority = dataAuthority;
 
     // ── Structured Audit Log: Inference Complete ──
     console.log(JSON.stringify({
@@ -384,6 +598,7 @@ functions.http('sentinelInference', async (req, res) => {
       requestId,
       contextKey,
       model: 'gemini-2.0-flash',
+      dataAuthority,
       outputLength: result.text?.length || 0,
       confidence: structuredResponse.confidence,
       metricsCount: structuredResponse.metrics?.length || 0,
@@ -397,7 +612,7 @@ functions.http('sentinelInference', async (req, res) => {
       model: 'gemini-2.0-flash',
       timestamp: new Date().toISOString(),
       data: structuredResponse,
-      infrastructure: 'Google Gen AI SDK — Structured JSON Output',
+      infrastructure: `Sentinel v4.1 — ${dataAuthority}`,
       requestId,
     });
 

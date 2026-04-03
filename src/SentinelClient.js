@@ -1,15 +1,17 @@
 /**
- * SENTINEL CLIENT — Headless API Abstraction Layer (v4.0)
+ * SENTINEL CLIENT — Headless API Abstraction Layer (v4.1 Data Moat)
  * ═══════════════════════════════════════════════════════════
  * Reusable, framework-agnostic client for Sentinel Engine.
  * Handles authentication, request execution, structured JSON
  * response parsing, and health checks.
  * 
+ * Data Authority: GCP_BIGQUERY_VECTOR_RAG (primary) | FIRESTORE_LEGACY (fallback)
+ * 
  * Usage:
  *   import { SentinelClient, SentinelError } from './SentinelClient';
  *   const client = new SentinelClient(SENTINEL_ENDPOINT);
  *   const result = await client.query('What are current Shanghai rates?');
- *   // result = { narrative, metrics, confidence, sources }
+ *   // result = { narrative, metrics, confidence, sources, dataAuthority }
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -94,10 +96,10 @@ export class SentinelClient {
 
   /**
    * Execute a logistics intelligence query.
-   * Returns structured JSON: { narrative, metrics, confidence, sources }
+   * Returns structured JSON: { narrative, metrics, confidence, sources, dataAuthority }
    * 
    * @param {string} queryText - Natural language query
-   * @returns {Promise<{narrative: string, metrics: Array, confidence: number, sources: string[]}>}
+   * @returns {Promise<{narrative: string, metrics: Array, confidence: number, sources: string[], dataAuthority: string}>}
    * @throws {SentinelError} On auth, rate limit, or inference failure
    */
   async query(queryText) {
@@ -136,6 +138,7 @@ export class SentinelClient {
       metrics: structured.metrics || [],
       confidence: structured.confidence ?? null,
       sources: structured.sources || [],
+      dataAuthority: structured.dataAuthority || data.infrastructure || 'UNKNOWN',
       requestId: data.requestId,
       model: data.model,
       timestamp: data.timestamp,
@@ -175,7 +178,7 @@ export class SentinelClient {
           status: response.status,
           code: data.code,
           routing: isOnline ? 'VPC_INTERNAL' : 'UNREACHABLE',
-          dataAuthority: isOnline ? 'GCP_FIRESTORE_NATIVE' : 'UNKNOWN',
+          dataAuthority: isOnline ? 'GCP_BIGQUERY_VECTOR_RAG' : 'UNKNOWN',
           zeroTrust: isOnline ? 'VERIFIED' : 'UNVERIFIED',
         },
       };
