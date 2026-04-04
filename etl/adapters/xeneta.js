@@ -3,36 +3,47 @@
  * ═══════════════════════════════════════════════════════════
  * Pulls live spot/contract rate data from the Xeneta API.
  *
- * STATUS: STUB — awaiting API key provisioning.
- * Set XENETA_API_KEY in environment variables to activate.
+ * STATUS: PRODUCTION — API key fetched from Secret Manager.
+ * The key is injected into process.env by the ETL orchestrator
+ * AFTER fetching from Secret Manager at runtime.
  *
  * Implements:
  *   getSpotContractSpreads() → Array<FreightIndex>
  * ═══════════════════════════════════════════════════════════
  */
 
+import axios from 'axios';
+
 const XENETA_API_URL = 'https://api.xeneta.com/v1';
-const API_KEY = process.env.XENETA_API_KEY;
 
-export const isAvailable = () => !!API_KEY;
+/**
+ * Check if the Xeneta API key is available.
+ * Called AFTER Secret Manager injection in the ETL orchestrator.
+ */
+export const isAvailable = () => !!process.env.XENETA_API_KEY;
 
+/**
+ * Fetch live spot vs contract rate spreads from Xeneta.
+ * Uses axios with timeout for production reliability.
+ *
+ * @returns {Promise<Array<{source, route_origin, route_destination, rate_usd, week_over_week_change, trend, narrative_context}>>}
+ */
 export async function getSpotContractSpreads() {
-  if (!API_KEY) {
-    throw new Error('[Xeneta] API key not configured. Set XENETA_API_KEY.');
+  const apiKey = process.env.XENETA_API_KEY;
+  if (!apiKey) {
+    throw new Error('[Xeneta] API key not configured. Ensure XENETA_API_KEY is in Secret Manager.');
   }
 
-  const response = await fetch(`${XENETA_API_URL}/rates/spot-contract`, {
+  const response = await axios.get(`${XENETA_API_URL}/rates/spot-contract`, {
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Accept': 'application/json',
     },
+    timeout: 15000,
+    validateStatus: (status) => status >= 200 && status < 300,
   });
 
-  if (!response.ok) {
-    throw new Error(`[Xeneta] API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
+  const data = response.data;
 
   return (data.corridors || []).map(c => ({
     source: 'Xeneta',

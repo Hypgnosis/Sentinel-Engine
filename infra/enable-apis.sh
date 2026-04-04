@@ -1,16 +1,15 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  SENTINEL ENGINE v4.0 — GCP API Enablement
+#  SENTINEL ENGINE v4.1 — GCP API Enablement
 #  Enables all required APIs on the target project.
 #
 #  Usage:
-#    export PROJECT_ID=ha-sentinel-core-prod
 #    chmod +x enable-apis.sh && ./enable-apis.sh
 # ═══════════════════════════════════════════════════════════════════
 
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-ha-sentinel-core-prod}"
+PROJECT_ID="ha-sentinel-core-v21"
 
 echo "[SENTINEL] Enabling required GCP APIs on project: ${PROJECT_ID}"
 
@@ -24,6 +23,8 @@ APIS=(
   "monitoring.googleapis.com"
   "logging.googleapis.com"
   "cloudfunctions.googleapis.com"
+  "secretmanager.googleapis.com"
+  "iam.googleapis.com"
 )
 
 for api in "${APIS[@]}"; do

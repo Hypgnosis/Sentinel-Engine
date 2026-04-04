@@ -1,5 +1,5 @@
 /**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (v4.1 Data Moat)
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (v4.1 Production)
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20+) — Gen2
  * 
@@ -8,6 +8,7 @@
  * Fallback:  Cloud Firestore (sentinel_data) — Legacy compat
  * Embeddings: Vertex AI text-embedding-004 (768 dim)
  * Security:  Zero-Trust CORS, JWT + tenant_id, Rate Limiting
+ * Secrets:   Google Cloud Secret Manager (runtime fetch)
  * 
  * Propiedad de High ArchyTech Solutions.
  * Arquitectura diseñada para: ReshapeX, Fracttal, DHL, Maersk.
@@ -18,6 +19,7 @@ const functions = require('@google-cloud/functions-framework');
 const { GoogleGenAI } = require('@google/genai');
 const { BigQuery } = require('@google-cloud/bigquery');
 const { Firestore } = require('@google-cloud/firestore');
+const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const admin = require('firebase-admin');
 
 // Initialize once at cold-start. Uses Application Default Credentials
@@ -31,22 +33,63 @@ if (!admin.apps.length) {
 //  CONFIGURATION
 // ─────────────────────────────────────────────────────
 
-// Force production sovereign project to inherit Vertex AI Enterprise SLAs
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'ha-sentinel-core-prod';
-const GCP_REGION     = process.env.GCP_REGION     || 'us-central1';
-const BQ_DATASET     = process.env.BQ_DATASET     || 'sentinel_warehouse';
+const GCP_PROJECT_ID  = 'ha-sentinel-core-v21';
+const GCP_REGION      = process.env.GCP_REGION || 'us-central1';
+const BQ_DATASET      = process.env.BQ_DATASET || 'sentinel_warehouse';
 const EMBEDDING_MODEL = 'text-embedding-004';
 const EMBEDDING_DIM   = 768;
 const VECTOR_TOP_K    = 15;  // Top-K results from each VECTOR_SEARCH
 
+// ─────────────────────────────────────────────────────
+//  SECRET MANAGER — Runtime Secret Fetching
+// ─────────────────────────────────────────────────────
+
+const secretClient = new SecretManagerServiceClient();
+
 /**
- * Data authority mode.
- *   'BIGQUERY_VECTOR_RAG' — Production mode. Embeds the query, runs VECTOR_SEARCH.
- *   'FIRESTORE_LEGACY'    — Fallback if BigQuery tables are unpopulated.
- * 
- * Automatically detected: if BigQuery VECTOR_SEARCH returns 0 results,
- * the function falls back to the Firestore legacy path.
+ * Singleton cache for secrets — fetched once at cold-start, reused
+ * across warm invocations. No process.env for sensitive keys.
  */
+const _secretCache = {};
+
+/**
+ * Fetches a secret from Google Cloud Secret Manager.
+ * Caches the result in-memory for the lifetime of the instance.
+ *
+ * @param {string} secretName - e.g. 'GEMINI_API_KEY'
+ * @returns {Promise<string>} The secret value (UTF-8 string)
+ */
+async function getSecret(secretName) {
+  if (_secretCache[secretName]) {
+    return _secretCache[secretName];
+  }
+
+  const name = `projects/${GCP_PROJECT_ID}/secrets/${secretName}/versions/latest`;
+
+  try {
+    const [version] = await secretClient.accessSecretVersion({ name });
+    const payload = version.payload.data.toString('utf8');
+    _secretCache[secretName] = payload;
+
+    console.log(JSON.stringify({
+      severity: 'INFO',
+      event: 'SECRET_MANAGER_FETCH_SUCCESS',
+      secret: secretName,
+      timestamp: new Date().toISOString(),
+    }));
+
+    return payload;
+  } catch (err) {
+    console.error(JSON.stringify({
+      severity: 'CRITICAL',
+      event: 'SECRET_MANAGER_FETCH_FAILURE',
+      secret: secretName,
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    }));
+    throw new Error(`Failed to fetch secret '${secretName}': ${err.message}`);
+  }
+}
 
 /**
  * Allowed CORS origins — Zero Trust.
@@ -156,7 +199,7 @@ FORMATO DE SALIDA: JSON estricto siguiendo el schema proporcionado.
 `;
 
 // ─────────────────────────────────────────────────────
-//  VECTOR_SEARCH — BigQuery RAG Retrieval
+//  VECTOR_SEARCH — BigQuery RAG Retrieval (Tenant-Scoped)
 // ─────────────────────────────────────────────────────
 
 /**
@@ -164,11 +207,15 @@ FORMATO DE SALIDA: JSON estricto siguiendo el schema proporcionado.
  * then execute VECTOR_SEARCH across all four warehouse tables.
  * Returns the top-K semantically relevant rows as a JSON context block.
  * 
+ * CRITICAL: All queries are scoped to the authenticated tenant_id to
+ * enforce Row-Level Security at the application layer.
+ *
  * @param {string} queryText - The user's natural language query
  * @param {object} genaiClient - Initialized GoogleGenAI client
+ * @param {string} tenantId - The tenant_id from the verified JWT claim
  * @returns {Promise<{contextPayload: string, resultCount: number}>}
  */
-async function vectorSearchRetrieval(queryText, genaiClient) {
+async function vectorSearchRetrieval(queryText, genaiClient, tenantId) {
   // Step 1: Embed the user query
   const embeddingResponse = await genaiClient.models.embedContent({
     model: EMBEDDING_MODEL,
@@ -183,6 +230,7 @@ async function vectorSearchRetrieval(queryText, genaiClient) {
   const vectorLiteral = `[${queryVector.join(',')}]`;
 
   // Step 2: Run VECTOR_SEARCH on all four tables (parallel)
+  // TENANT ISOLATION: Every query includes WHERE tenant_id = @tenantId
   const tableConfigs = [
     {
       table: 'freight_indices',
@@ -212,7 +260,7 @@ async function vectorSearchRetrieval(queryText, genaiClient) {
         base.${displayColumns.join(', base.')},
         distance
       FROM VECTOR_SEARCH(
-        TABLE \`${GCP_PROJECT_ID}.${BQ_DATASET}.${table}\`,
+        (SELECT * FROM \`${GCP_PROJECT_ID}.${BQ_DATASET}.${table}\` WHERE tenant_id = @tenantId),
         'embedding',
         (SELECT ${vectorLiteral} AS embedding),
         top_k => ${VECTOR_TOP_K},
@@ -223,7 +271,11 @@ async function vectorSearchRetrieval(queryText, genaiClient) {
     `;
 
     try {
-      const [rows] = await bigquery.query({ query, location: 'US' });
+      const [rows] = await bigquery.query({
+        query,
+        params: { tenantId },
+        location: 'US',
+      });
       return { label, rows, error: null };
     } catch (err) {
       // Table might not exist yet — graceful degradation
@@ -335,6 +387,7 @@ functions.http('sentinelInference', async (req, res) => {
   if (handleCORS(req, res)) return;
 
   try {
+    // ── Initialize AI client via Vertex AI ADC (no API key in env) ──
     if (!ai) {
       ai = new GoogleGenAI({ 
         vertexai: { 
@@ -451,6 +504,7 @@ functions.http('sentinelInference', async (req, res) => {
       event: 'SENTINEL_REQUEST_INGESTED',
       requestId,
       uid: decodedToken.uid,
+      tenantId,
       contextKey,
       queryLength: query.trim().length,
       timestamp: requestTimestamp,
@@ -459,22 +513,24 @@ functions.http('sentinelInference', async (req, res) => {
     // ═══════════════════════════════════════════════════
     //  RAG CONTEXT RETRIEVAL — BigQuery VECTOR_SEARCH
     //  with automatic Firestore legacy fallback
+    //  ALL QUERIES SCOPED TO tenant_id
     // ═══════════════════════════════════════════════════
 
     let contextPayload;
     let dataAuthority;
 
-    // Primary path: BigQuery VECTOR_SEARCH (Production)
+    // Primary path: BigQuery VECTOR_SEARCH (Production, Tenant-Scoped)
     try {
       console.log(JSON.stringify({
         severity: 'INFO',
         event: 'VECTOR_SEARCH_START',
         requestId,
+        tenantId,
         queryPreview: query.trim().substring(0, 100),
         timestamp: new Date().toISOString(),
       }));
 
-      const vectorResult = await vectorSearchRetrieval(query.trim(), ai);
+      const vectorResult = await vectorSearchRetrieval(query.trim(), ai, tenantId);
 
       if (vectorResult.resultCount > 0) {
         contextPayload = vectorResult.contextPayload;
@@ -484,6 +540,7 @@ functions.http('sentinelInference', async (req, res) => {
           severity: 'INFO',
           event: 'VECTOR_SEARCH_SUCCESS',
           requestId,
+          tenantId,
           resultCount: vectorResult.resultCount,
           dataAuthority,
           timestamp: new Date().toISOString(),
@@ -494,6 +551,7 @@ functions.http('sentinelInference', async (req, res) => {
           severity: 'WARNING',
           event: 'VECTOR_SEARCH_EMPTY',
           requestId,
+          tenantId,
           message: 'BigQuery VECTOR_SEARCH returned 0 results. Falling back to Firestore.',
           timestamp: new Date().toISOString(),
         }));
@@ -505,6 +563,7 @@ functions.http('sentinelInference', async (req, res) => {
         severity: 'WARNING',
         event: 'VECTOR_SEARCH_FALLBACK',
         requestId,
+        tenantId,
         error: vectorError.message,
         message: 'BigQuery VECTOR_SEARCH failed. Falling back to Firestore legacy path.',
         timestamp: new Date().toISOString(),
@@ -522,6 +581,7 @@ functions.http('sentinelInference', async (req, res) => {
           event: 'SOURCE_ALPHA_NOT_FOUND',
           requestId,
           contextKey,
+          tenantId,
           message: 'Both BigQuery VECTOR_SEARCH and Firestore legacy path failed. No context available.',
           timestamp: requestTimestamp,
         }));
@@ -542,6 +602,7 @@ functions.http('sentinelInference', async (req, res) => {
         event: 'FIRESTORE_LEGACY_ACTIVE',
         requestId,
         contextKey,
+        tenantId,
         cached: firestoreResult.cached,
         dataAuthority,
         timestamp: new Date().toISOString(),
@@ -597,6 +658,7 @@ functions.http('sentinelInference', async (req, res) => {
       event: 'SENTINEL_INFERENCE_COMPLETE',
       requestId,
       contextKey,
+      tenantId,
       model: 'gemini-2.0-flash',
       dataAuthority,
       outputLength: result.text?.length || 0,

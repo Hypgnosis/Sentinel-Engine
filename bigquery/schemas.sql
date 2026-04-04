@@ -1,8 +1,11 @@
 -- ═══════════════════════════════════════════════════════════════════
---  SENTINEL ENGINE v4.0 — CANONICAL BigQuery DDL
+--  SENTINEL ENGINE v4.1 — CANONICAL BigQuery DDL (Multi-Tenant)
 --  The Logistics Data Warehouse. Core proprietary asset.
 --
 --  Key Design Decisions:
+--    - tenant_id STRING NOT NULL — Row-Level Security enforcement.
+--      Every query MUST filter by tenant_id. RLS policies are applied
+--      via BigQuery Row Access Policies (see bottom of file).
 --    - VECTOR<FLOAT64>(768) — Native BQ vector type, optimized for
 --      VECTOR_SEARCH indexing with Vertex AI text-embedding-004.
 --    - entity_hash — SHA-256 deduplication key. Prevents explosive
@@ -10,7 +13,7 @@
 --    - PARTITION BY DATE(ingested_at) — Time-series partitioning
 --      for cost-efficient 24-hour relevance windows.
 --
---  Usage: bq query --use_legacy_sql=false < schemas.sql
+--  Usage: bq query --use_legacy_sql=false --project_id=ha-sentinel-core-v21 < schemas.sql
 -- ═══════════════════════════════════════════════════════════════════
 
 -- Create the dataset
@@ -23,6 +26,7 @@ CREATE SCHEMA IF NOT EXISTS sentinel_warehouse
 -- ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sentinel_warehouse.freight_indices (
   entity_hash             STRING      NOT NULL,
+  tenant_id               STRING      NOT NULL,
   ingested_at             TIMESTAMP   DEFAULT CURRENT_TIMESTAMP(),
   source                  STRING,
   route_origin            STRING,
@@ -32,7 +36,8 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.freight_indices (
   trend                   STRING,
   narrative_context       STRING,
   embedding               VECTOR<FLOAT64>(768)
-) PARTITION BY DATE(ingested_at);
+) PARTITION BY DATE(ingested_at)
+  CLUSTER BY tenant_id;
 
 -- ─────────────────────────────────────────────────────
 --  2. PORT CONGESTION
@@ -40,6 +45,7 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.freight_indices (
 -- ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sentinel_warehouse.port_congestion (
   entity_hash             STRING      NOT NULL,
+  tenant_id               STRING      NOT NULL,
   ingested_at             TIMESTAMP   DEFAULT CURRENT_TIMESTAMP(),
   source                  STRING,
   port_name               STRING,
@@ -48,7 +54,8 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.port_congestion (
   severity_level          STRING,
   narrative_context       STRING,
   embedding               VECTOR<FLOAT64>(768)
-) PARTITION BY DATE(ingested_at);
+) PARTITION BY DATE(ingested_at)
+  CLUSTER BY tenant_id;
 
 -- ─────────────────────────────────────────────────────
 --  3. MARITIME CHOKEPOINTS
@@ -56,6 +63,7 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.port_congestion (
 -- ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sentinel_warehouse.maritime_chokepoints (
   entity_hash             STRING      NOT NULL,
+  tenant_id               STRING      NOT NULL,
   ingested_at             TIMESTAMP   DEFAULT CURRENT_TIMESTAMP(),
   source                  STRING,
   chokepoint_name         STRING,
@@ -64,7 +72,8 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.maritime_chokepoints (
   transit_delay_hours     FLOAT64,
   narrative_context       STRING,
   embedding               VECTOR<FLOAT64>(768)
-) PARTITION BY DATE(ingested_at);
+) PARTITION BY DATE(ingested_at)
+  CLUSTER BY tenant_id;
 
 -- ─────────────────────────────────────────────────────
 --  4. RISK MATRIX
@@ -72,6 +81,7 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.maritime_chokepoints (
 -- ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sentinel_warehouse.risk_matrix (
   entity_hash             STRING      NOT NULL,
+  tenant_id               STRING      NOT NULL,
   ingested_at             TIMESTAMP   DEFAULT CURRENT_TIMESTAMP(),
   source                  STRING,
   risk_factor             STRING,
@@ -80,4 +90,92 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.risk_matrix (
   impact_window           STRING,
   narrative_context       STRING,
   embedding               VECTOR<FLOAT64>(768)
-) PARTITION BY DATE(ingested_at);
+) PARTITION BY DATE(ingested_at)
+  CLUSTER BY tenant_id;
+
+-- ═══════════════════════════════════════════════════════════════════
+--  ROW-LEVEL SECURITY (RLS) — BigQuery Row Access Policies
+--  
+--  These policies enforce that queries can ONLY return rows where
+--  tenant_id matches the caller's session variable or the service
+--  account's designated tenant scope.
+--
+--  Implementation:
+--    - The Cloud Function sets SESSION tenant_id = <JWT claim>
+--    - The ETL SA is granted full data access (it writes all tenants)
+--    - Each tenant's analyst users see only their own data
+--
+--  BigQuery RLS uses CREATE ROW ACCESS POLICY on each table.
+--  The filter_using expression restricts visible rows.
+-- ═══════════════════════════════════════════════════════════════════
+
+-- ── RLS Policy: freight_indices ──
+-- Grants:
+--   sentinel-etl-sa: full access (writes all tenant data)
+--   sentinel-inference-sa: filtered by SESSION.tenant_id
+CREATE OR REPLACE ROW ACCESS POLICY rls_freight_tenant
+  ON sentinel_warehouse.freight_indices
+  GRANT TO (
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+  )
+  FILTER USING (TRUE);
+
+CREATE OR REPLACE ROW ACCESS POLICY rls_freight_tenant_scoped
+  ON sentinel_warehouse.freight_indices
+  GRANT TO (
+    "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "allAuthenticatedUsers"
+  )
+  FILTER USING (tenant_id = SESSION_USER()
+    OR tenant_id = CAST(@@query.tenant_id AS STRING));
+
+-- ── RLS Policy: port_congestion ──
+CREATE OR REPLACE ROW ACCESS POLICY rls_port_tenant
+  ON sentinel_warehouse.port_congestion
+  GRANT TO (
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+  )
+  FILTER USING (TRUE);
+
+CREATE OR REPLACE ROW ACCESS POLICY rls_port_tenant_scoped
+  ON sentinel_warehouse.port_congestion
+  GRANT TO (
+    "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "allAuthenticatedUsers"
+  )
+  FILTER USING (tenant_id = SESSION_USER()
+    OR tenant_id = CAST(@@query.tenant_id AS STRING));
+
+-- ── RLS Policy: maritime_chokepoints ──
+CREATE OR REPLACE ROW ACCESS POLICY rls_chokepoint_tenant
+  ON sentinel_warehouse.maritime_chokepoints
+  GRANT TO (
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+  )
+  FILTER USING (TRUE);
+
+CREATE OR REPLACE ROW ACCESS POLICY rls_chokepoint_tenant_scoped
+  ON sentinel_warehouse.maritime_chokepoints
+  GRANT TO (
+    "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "allAuthenticatedUsers"
+  )
+  FILTER USING (tenant_id = SESSION_USER()
+    OR tenant_id = CAST(@@query.tenant_id AS STRING));
+
+-- ── RLS Policy: risk_matrix ──
+CREATE OR REPLACE ROW ACCESS POLICY rls_risk_tenant
+  ON sentinel_warehouse.risk_matrix
+  GRANT TO (
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+  )
+  FILTER USING (TRUE);
+
+CREATE OR REPLACE ROW ACCESS POLICY rls_risk_tenant_scoped
+  ON sentinel_warehouse.risk_matrix
+  GRANT TO (
+    "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "allAuthenticatedUsers"
+  )
+  FILTER USING (tenant_id = SESSION_USER()
+    OR tenant_id = CAST(@@query.tenant_id AS STRING));

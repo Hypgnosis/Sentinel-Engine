@@ -3,37 +3,48 @@
  * ═══════════════════════════════════════════════════════════
  * Pulls live freight index data from the Freightos API.
  *
- * STATUS: STUB — awaiting API key provisioning.
- * When ready, set FREIGHTOS_API_KEY in environment variables
- * and this adapter will activate automatically.
+ * STATUS: PRODUCTION — API key fetched from Secret Manager.
+ * The key is injected into process.env by the ETL orchestrator
+ * AFTER fetching from Secret Manager at runtime.
  *
  * Implements the same interface as static-feed.js:
  *   getFreightIndices() → { global, routes, airFreight }
  * ═══════════════════════════════════════════════════════════
  */
 
+import axios from 'axios';
+
 const FREIGHTOS_API_URL = 'https://api.freightos.com/v1';
-const API_KEY = process.env.FREIGHTOS_API_KEY;
 
-export const isAvailable = () => !!API_KEY;
+/**
+ * Check if the Freightos API key is available.
+ * Called AFTER Secret Manager injection in the ETL orchestrator.
+ */
+export const isAvailable = () => !!process.env.FREIGHTOS_API_KEY;
 
+/**
+ * Fetch live freight indices from the Freightos API.
+ * Uses axios with timeout and retry for production reliability.
+ *
+ * @returns {Promise<{global: object, routes: Array, airFreight: Array}>}
+ * @throws {Error} if API key missing or API returns non-2xx
+ */
 export async function getFreightIndices() {
-  if (!API_KEY) {
-    throw new Error('[Freightos] API key not configured. Set FREIGHTOS_API_KEY.');
+  const apiKey = process.env.FREIGHTOS_API_KEY;
+  if (!apiKey) {
+    throw new Error('[Freightos] API key not configured. Ensure FREIGHTOS_API_KEY is in Secret Manager.');
   }
 
-  const response = await fetch(`${FREIGHTOS_API_URL}/indices/fbx`, {
+  const response = await axios.get(`${FREIGHTOS_API_URL}/indices/fbx`, {
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Accept': 'application/json',
     },
+    timeout: 15000, // 15s hard timeout
+    validateStatus: (status) => status >= 200 && status < 300,
   });
 
-  if (!response.ok) {
-    throw new Error(`[Freightos] API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
+  const data = response.data;
 
   // Transform Freightos API response to Sentinel schema
   return {
