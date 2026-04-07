@@ -34,10 +34,10 @@ The UI/UX is built on a custom, bilingual (EN/ES) design system featuring a unif
 
 ## 📊 Live Production Benchmarks
 The V4.1 architecture is currently deployed and live. Recent production telemetry demonstrates:
-* **End-to-End Latency (Flash Route):** 8–12 seconds (including zero-trust auth and RAG retrieval).
+* **End-to-End Latency (Flash Route):** 8–12 seconds. (Note: This highly optimized metric encompasses a complete multi-hop pipeline: Zero-Trust JWT verification, Vertex AI vector embedding, BigQuery RAG retrieval, and final LLM inference).
 * **Structural Compliance:** 100% JSON schema adherence.
 * **Inference Confidence:** Sustained 0.97+ confidence scores on complex strategic queries.
-* **Live Demo URL:** [Insert your Netlify URL here]
+* **Live Demo URL:** https://sentinel-engine.netlify.app/
 
 ## 💻 Technical Stack
 * **Edge / Frontend:** React 19, Vite 8, Tailwind CSS v4, Custom Design Tokens.
