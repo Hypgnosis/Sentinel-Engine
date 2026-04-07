@@ -5,7 +5,7 @@ import {
   Anchor, Ship, Container, TrendingUp, TrendingDown, Minus,
   Languages, Menu, X, Activity, Eye, Lock, Cpu, Wifi, WifiOff,
   BarChart3, FileText, ArrowUpRight, Sparkles, Hexagon,
-  Volume2, VolumeX
+  Volume2, VolumeX, Mic
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
@@ -20,7 +20,7 @@ const translations = {
     brand: 'SENTINEL × ROSE ROCKET',
     brandSub: 'Autonomous Market Intelligence',
     tagline: 'Middleware-Free Intelligence Pipeline for Global Logistics',
-    nav: { dashboard: 'Dashboard', terminal: 'Query Terminal', sync: 'Sync Status', intel: 'Intel Feed' },
+    nav: { dashboard: 'Dashboard', terminal: 'Query Terminal', sync: 'Sync Status' },
     hero: {
       title: 'The Future of Logistics Intelligence',
       subtitle: 'Post-quantum secured. Middleware-free. Autonomous.',
@@ -60,18 +60,18 @@ const translations = {
       payloadReceived: 'Source Alpha Payload Received',
     },
     terminal: {
-      title: 'Query Terminal',
-      subtitle: 'Interact with Sentinel Engine',
-      placeholder: 'Enter intelligence query...',
-      welcome: 'SENTINEL ENGINE v4.1 — Data Moat Active (BigQuery VECTOR_RAG)',
-      ready: 'System ready. Type a logistics query to begin.',
-      thinking: 'Processing intelligence query...',
-      dataAuthority: 'Response authority based on data < 1hr old',
+      title: 'Ask Sentinel',
+      subtitle: 'Your logistics intelligence advisor — just ask a question',
+      placeholder: 'Ask me anything about freight rates, port congestion, supply chain risks...',
+      welcome: 'Hey! I\'m Sentinel — your logistics intelligence advisor. Powered by live market data.',
+      ready: 'Go ahead, ask me something. I have real-time data from Freightos, Xeneta, and MarineTraffic.',
+      thinking: 'Let me pull that up for you...',
+      dataAuthority: 'Verified from live data sources',
       suggestions: [
-        'What are current Shanghai-Rotterdam freight rates?',
-        'Show port congestion at Long Beach',
-        'Analyze Baltic Dry Index trends',
-        'Suez Canal transit delays today',
+        'What\'s the current freight rate from Shanghai to Rotterdam?',
+        'How congested is the Port of Long Beach right now?',
+        'Give me a Baltic Dry Index update',
+        'Any transit delays through the Suez Canal today?',
       ],
     },
     security: {
@@ -97,7 +97,7 @@ const translations = {
     brand: 'SENTINEL × ROSE ROCKET',
     brandSub: 'Inteligencia de Mercado Autónoma',
     tagline: 'Pipeline de Inteligencia Sin Middleware para Logística Global',
-    nav: { dashboard: 'Panel', terminal: 'Terminal', sync: 'Sincronización', intel: 'Intel Feed' },
+    nav: { dashboard: 'Panel', terminal: 'Terminal', sync: 'Sincronización' },
     hero: {
       title: 'El Futuro de la Inteligencia Logística',
       subtitle: 'Seguridad post-cuántica. Sin middleware. Autónomo.',
@@ -137,18 +137,18 @@ const translations = {
       payloadReceived: 'Payload Source Alpha Recibido',
     },
     terminal: {
-      title: 'Terminal de Consultas',
-      subtitle: 'Interactuar con Sentinel Engine',
-      placeholder: 'Ingrese consulta de inteligencia...',
-      welcome: 'SENTINEL ENGINE v4.1 — Data Moat Activo (BigQuery VECTOR_RAG)',
-      ready: 'Sistema listo. Escriba una consulta logística para comenzar.',
-      thinking: 'Procesando consulta de inteligencia...',
-      dataAuthority: 'Autoridad de respuesta basada en datos < 1hr',
+      title: 'Pregúntale a Sentinel',
+      subtitle: 'Tu asesor de inteligencia logística — solo haz una pregunta',
+      placeholder: 'Pregúntame sobre tarifas, congestión portuaria, riesgos en cadena de suministro...',
+      welcome: '¡Hola! Soy Sentinel — tu asesor de inteligencia logística. Conectado a datos de mercado en vivo.',
+      ready: 'Adelante, pregúntame algo. Tengo datos en tiempo real de Freightos, Xeneta y MarineTraffic.',
+      thinking: 'Déjame verificar eso...',
+      dataAuthority: 'Verificado desde fuentes de datos en vivo',
       suggestions: [
-        '¿Cuáles son las tarifas actuales Shanghai-Rotterdam?',
-        'Mostrar congestión portuaria en Long Beach',
-        'Analizar tendencias del Baltic Dry Index',
-        'Retrasos de tránsito Canal de Suez hoy',
+        '¿Cuál es la tarifa actual de Shanghai a Rotterdam?',
+        '¿Qué tan congestionado está Long Beach ahora?',
+        'Dame una actualización del Baltic Dry Index',
+        '¿Hay retrasos de tránsito en el Canal de Suez hoy?',
       ],
     },
     security: {
@@ -266,7 +266,6 @@ const Navigation = ({ t, lang, setLang, activeSection, setActiveSection }) => {
     { key: 'dashboard', icon: Radar, label: t.nav.dashboard },
     { key: 'terminal', icon: Terminal, label: t.nav.terminal },
     { key: 'sync', icon: RefreshCw, label: t.nav.sync },
-    { key: 'intel', icon: Activity, label: t.nav.intel },
   ];
 
   return (
@@ -467,7 +466,7 @@ const SyncTracker = ({ t, connectionStatus, isSyncing, sourceAlphaData }) => {
         setProgress((next / 60) * 100);
         return next;
       });
-    }, 2000); // Accelerated for demo
+    }, 60000); // Real-time: 1 tick = 1 minute
 
     return () => clearInterval(interval);
   }, []);
@@ -723,6 +722,7 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
   const [isTyping, setIsTyping] = useState(false);
   const [isVoiceActive, setIsVoiceActive] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -732,26 +732,86 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
     clientRef.current = new SentinelClient(import.meta.env.VITE_SENTINEL_ENDPOINT);
   }
 
-  // --- VOICE PROTOCOL (Web Speech API Only) ---
-  const speakResponse = (text) => {
-    if (!isVoiceActive || !('speechSynthesis' in window)) return;
+  // --- VOICE PROTOCOL: Dual-Layer TTS (Cloud Primary, Browser Fallback) ---
+  const speakResponse = (text, audioBase64 = null) => {
+    if (!isVoiceActive) return;
+
+    // Layer 1: Google Cloud TTS (Premium Journey Voice)
+    if (audioBase64) {
+      try {
+        window.speechSynthesis?.cancel();
+        const audioSrc = `data:audio/mp3;base64,${audioBase64}`;
+        const sentinelVoice = new Audio(audioSrc);
+        sentinelVoice.onplay = () => setIsSpeaking(true);
+        sentinelVoice.onended = () => setIsSpeaking(false);
+        sentinelVoice.onerror = () => {
+          setIsSpeaking(false);
+          // If cloud audio fails, fall through to browser TTS
+          speakWithBrowser(text);
+        };
+        sentinelVoice.play();
+        return;
+      } catch (err) {
+        console.warn('Cloud TTS playback failed, falling back to browser:', err);
+      }
+    }
+
+    // Layer 2: Browser Web Speech API (Fallback)
+    speakWithBrowser(text);
+  };
+
+  const speakWithBrowser = (text) => {
+    if (!('speechSynthesis' in window)) return;
 
     window.speechSynthesis.cancel();
 
     const cleanText = text.replace(/[*#_`~]/g, '');
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = 1.05;
-    utterance.pitch = 0.9;
+    utterance.lang = 'en-US';
 
     const voices = window.speechSynthesis.getVoices();
-    const systemVoice = voices.find(v => v.name.includes('Google') || v.name.includes('Samantha') || v.lang === 'en-GB');
-    if (systemVoice) utterance.voice = systemVoice;
+    const bestVoice = voices.find(v => v.name.includes('Google US English')) ||
+                      voices.find(v => v.lang === 'en-US' && v.name.includes('Samantha')) ||
+                      voices.find(v => v.lang.startsWith('en'));
+    if (bestVoice) utterance.voice = bestVoice;
+
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
 
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
 
     window.speechSynthesis.speak(utterance);
+  };
+
+  // --- VOICE PROTOCOL: Speech-to-Text (Microphone Input) ---
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Your browser does not support voice input. Please use Chrome.');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(transcript);
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Microphone error:', event.error);
+      setIsListening(false);
+    };
+
+    recognition.start();
   };
 
   // Auto-scroll to bottom of chat
@@ -786,7 +846,7 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
       if (setLastPayload) {
         setLastPayload({
           status: "SUCCESS",
-          model: "gemini-2.0-flash",
+          model: result.model || "gemini-2.5-flash",
           timestamp: new Date().toISOString(),
           data: {
             narrative: result.narrative.substring(0, 50) + "...", // Truncated for visual impact
@@ -808,13 +868,13 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
         timestamp: new Date().toLocaleTimeString(),
       }]);
 
-      // Engage Voice Protocol (Web Speech API)
-      speakResponse(result.narrative);
+      // Engage Voice Protocol (Cloud TTS → Browser Fallback)
+      speakResponse(result.narrative, result.audioBase64);
     } catch (error) {
       console.error('Sentinel Engine API Error:', error);
       setMessages(prev => [...prev, {
         role: 'system',
-        content: `PIPELINE COMPROMISED: ${error.message || 'UNABLE TO REACH AI CORE.'}`,
+        content: `Hmm, I wasn't able to reach the data pipeline. ${error.message || 'Please check your connection and try again.'}`,
         type: 'error',
       }]);
     } finally {
@@ -940,7 +1000,7 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
                   <div className="max-w-[85%] pl-5 pr-6 py-4 border-l-[3px] border-cyber-purple/60 bg-obsidian-mid/30 rounded-r-xl">
                     <div className="flex items-center gap-2 mb-3">
                       <Shield className="w-4 h-4 text-cyber-purple" />
-                      <span className="text-[11px] text-cyber-purple tracking-[0.15em] font-semibold">SENTINEL RESPONSE</span>
+                      <span className="text-[11px] text-cyber-purple tracking-[0.15em] font-semibold">Sentinel</span>
                       {msg.confidence != null && (
                         <span className="text-[9px] text-amber-gold bg-amber-gold-dim px-1.5 py-0.5 rounded-full font-mono">
                           {Math.round(msg.confidence * 100)}% confidence
@@ -1047,6 +1107,22 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
             />
             <span className="absolute bottom-2 right-3 text-[9px] font-mono text-text-muted/50">Shift+Enter for new line</span>
           </div>
+          {/* Mic Button — Speech-to-Text */}
+          <button
+            id="terminal-mic"
+            type="button"
+            onClick={startListening}
+            disabled={isTyping || isListening}
+            className={`flex items-center justify-center w-12 h-12 rounded-xl border transition-all duration-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 ${
+              isListening
+                ? 'border-red-500 bg-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
+                : 'border-obsidian-border bg-obsidian-mid/50 hover:border-cyber-purple/50 hover:bg-cyber-purple-dim'
+            }`}
+            title={isListening ? 'Listening...' : 'Speak your query'}
+          >
+            <Mic className={`w-5 h-5 ${isListening ? 'text-red-400' : 'text-text-secondary'}`} />
+          </button>
+          {/* Send Button */}
           <button
             id="terminal-send"
             type="submit"
@@ -1415,10 +1491,6 @@ export default function App() {
           )}
 
           {activeSection === 'sync' && (
-            <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-          )}
-
-          {activeSection === 'intel' && (
             <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
           )}
         </main>

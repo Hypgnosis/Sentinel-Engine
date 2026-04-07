@@ -14,7 +14,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'ha-sentinel-core-prod';
+const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'ha-sentinel-core-v21';
 const GCP_REGION     = process.env.GCP_REGION     || 'us-central1';
 const EMBEDDING_MODEL = 'text-embedding-004';
 const MAX_BATCH_SIZE  = 250;

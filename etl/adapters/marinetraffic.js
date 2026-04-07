@@ -4,8 +4,9 @@
  * Pulls live port congestion and chokepoint data from
  * the MarineTraffic API.
  *
- * STATUS: STUB — awaiting API key provisioning.
- * Set MARINETRAFFIC_API_KEY in environment variables to activate.
+ * STATUS: PRODUCTION — API key fetched from Secret Manager.
+ * The key is injected into process.env by the ETL orchestrator
+ * AFTER fetching from Secret Manager at runtime.
  *
  * Implements:
  *   getPortCongestion() → Array<PortCongestion>
@@ -13,26 +14,33 @@
  * ═══════════════════════════════════════════════════════════
  */
 
-const MT_API_URL = 'https://services.marinetraffic.com/api';
-const API_KEY = process.env.MARINETRAFFIC_API_KEY;
+import axios from 'axios';
 
-export const isAvailable = () => !!API_KEY;
+const MT_API_URL = 'https://services.marinetraffic.com/api';
+
+/**
+ * Check if the MarineTraffic API key is available.
+ * Called AFTER Secret Manager injection in the ETL orchestrator.
+ * Uses runtime process.env — NOT import-time capture.
+ */
+export const isAvailable = () => !!process.env.MARINETRAFFIC_API_KEY;
 
 export async function getPortCongestion() {
-  if (!API_KEY) {
-    throw new Error('[MarineTraffic] API key not configured. Set MARINETRAFFIC_API_KEY.');
+  const apiKey = process.env.MARINETRAFFIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('[MarineTraffic] API key not configured. Ensure MARINETRAFFIC_API_KEY is in Secret Manager.');
   }
 
-  const response = await fetch(
-    `${MT_API_URL}/portcongestion/${API_KEY}/protocol:jsono`,
-    { headers: { 'Accept': 'application/json' } }
+  const response = await axios.get(
+    `${MT_API_URL}/portcongestion/${apiKey}/protocol:jsono`,
+    {
+      headers: { 'Accept': 'application/json' },
+      timeout: 20000, // 20s — MarineTraffic can be slow
+      validateStatus: (status) => status >= 200 && status < 300,
+    },
   );
 
-  if (!response.ok) {
-    throw new Error(`[MarineTraffic] API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
+  const data = response.data;
 
   return (data || []).map(p => ({
     source: 'MarineTraffic',
@@ -40,27 +48,26 @@ export async function getPortCongestion() {
     vessels_at_anchor: parseInt(p.vesselsAtAnchor || p.VESSELS_AT_ANCHOR, 10) || 0,
     avg_wait_days: parseFloat(p.avgWaitDays || p.AVG_WAIT_DAYS) || 0,
     severity_level: classifySeverity(parseInt(p.vesselsAtAnchor || p.VESSELS_AT_ANCHOR, 10)),
-    narrative_context: `${p.portName}: ${p.vesselsAtAnchor} vessels at anchor, ${p.avgWaitDays}-day average wait.`,
+    narrative_context: `${p.portName || p.PORT_NAME}: ${p.vesselsAtAnchor || p.VESSELS_AT_ANCHOR} vessels at anchor, ${p.avgWaitDays || p.AVG_WAIT_DAYS}-day average wait.`,
   }));
 }
 
 export async function getChokepoints() {
-  if (!API_KEY) {
-    throw new Error('[MarineTraffic] API key not configured. Set MARINETRAFFIC_API_KEY.');
+  const apiKey = process.env.MARINETRAFFIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('[MarineTraffic] API key not configured. Ensure MARINETRAFFIC_API_KEY is in Secret Manager.');
   }
 
-  // MarineTraffic doesn't have a direct chokepoint API — this would
-  // be assembled from vessel density and AIS transit data
-  const response = await fetch(
-    `${MT_API_URL}/chokepoints/${API_KEY}/protocol:jsono`,
-    { headers: { 'Accept': 'application/json' } }
+  const response = await axios.get(
+    `${MT_API_URL}/chokepoints/${apiKey}/protocol:jsono`,
+    {
+      headers: { 'Accept': 'application/json' },
+      timeout: 20000,
+      validateStatus: (status) => status >= 200 && status < 300,
+    },
   );
 
-  if (!response.ok) {
-    throw new Error(`[MarineTraffic] Chokepoint API error: ${response.status}`);
-  }
-
-  const data = await response.json();
+  const data = response.data;
 
   return (data || []).map(c => ({
     source: 'MarineTraffic',

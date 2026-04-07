@@ -166,7 +166,7 @@ async function seedFirestore() {
     await configRef.set({
       engineVersion: '4.0.0',
       deployment: 'Cloud Functions Gen2',
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       outputFormat: 'application/json',
       responseSchema: 'logistics_structured_v4',
       allowedOrigins: ALLOWED_ORIGINS_CONFIG,

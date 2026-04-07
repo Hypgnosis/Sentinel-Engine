@@ -51,6 +51,11 @@ import {
   getSpotContractSpreads as getLiveXenetaSpreads,
   isAvailable as isXenetaAvailable,
 } from './adapters/xeneta.js';
+import {
+  getPortCongestion as getLivePortCongestion,
+  getChokepoints as getLiveChokepoints,
+  isAvailable as isMarineTrafficAvailable,
+} from './adapters/marinetraffic.js';
 
 // ─────────────────────────────────────────────────────
 //  CONFIGURATION
@@ -199,14 +204,18 @@ async function circuitBreaker(adapterName, liveFn, staticFn, bqTable, bqRowMappe
 async function extract() {
   log('INFO', 'ETL_EXTRACT_START');
 
-  // Pre-flight: Fetch API keys from Secret Manager
-  const freightosKey = await getSecret('FREIGHTOS_API_KEY');
-  const xenetaKey    = await getSecret('XENETA_API_KEY');
+  // ── Pre-flight: Fetch ALL API keys from Secret Manager ──
+  const [freightosKey, xenetaKey, marineTrafficKey] = await Promise.all([
+    getSecret('FREIGHTOS_API_KEY'),
+    getSecret('XENETA_API_KEY'),
+    getSecret('MARINETRAFFIC_API_KEY'),
+  ]);
 
   // Inject secrets into adapter environment for the duration of this run
   // (adapters read process.env at call time, not import time)
-  if (freightosKey) process.env.FREIGHTOS_API_KEY = freightosKey;
-  if (xenetaKey)    process.env.XENETA_API_KEY    = xenetaKey;
+  if (freightosKey)     process.env.FREIGHTOS_API_KEY     = freightosKey;
+  if (xenetaKey)        process.env.XENETA_API_KEY        = xenetaKey;
+  if (marineTrafficKey) process.env.MARINETRAFFIC_API_KEY  = marineTrafficKey;
 
   // ── Freight Indices (Freightos live → BQ cache → static) ──
   const freightResult = await circuitBreaker(
@@ -222,25 +231,64 @@ async function extract() {
     }),
   );
 
-  // ── Port Congestion (static for now — MarineTraffic pending) ──
+  // ── Xeneta Spot/Contract Spreads (Xeneta live → BQ cache → static) ──
+  const xenetaResult = await circuitBreaker(
+    'Xeneta',
+    isXenetaAvailable() ? getLiveXenetaSpreads : () => { throw new Error('No Xeneta API key'); },
+    () => getStaticFreight().spotContractSpreads || [],
+    'freight_indices',
+    (rows) => rows
+      .filter(r => r.source === 'Xeneta')
+      .map(r => ({
+        source: r.source,
+        route_origin: r.route_origin,
+        route_destination: r.route_destination,
+        rate_usd: r.rate_usd,
+        week_over_week_change: r.week_over_week_change,
+        trend: r.trend,
+        narrative_context: r.narrative_context,
+      })),
+  );
+
+  // Merge Xeneta spreads into the freight data envelope
+  const freightData = freightResult.data;
+  freightData.spotContractSpreads = Array.isArray(xenetaResult.data)
+    ? xenetaResult.data
+    : [];
+
+  // ── Port Congestion (MarineTraffic live → BQ cache → static) ──
   const portResult = await circuitBreaker(
-    'PortCongestion',
-    () => { throw new Error('MarineTraffic adapter not yet provisioned'); },
+    'MarineTraffic:Ports',
+    isMarineTrafficAvailable() ? getLivePortCongestion : () => { throw new Error('No MarineTraffic API key'); },
     getStaticPorts,
     'port_congestion',
-    (rows) => rows,
+    (rows) => rows.map(r => ({
+      source: r.source,
+      port_name: r.port_name,
+      vessels_at_anchor: r.vessels_at_anchor,
+      avg_wait_days: r.avg_wait_days,
+      severity_level: r.severity_level,
+      narrative_context: r.narrative_context,
+    })),
   );
 
-  // ── Chokepoints (static for now) ──
+  // ── Chokepoints (MarineTraffic live → BQ cache → static) ──
   const chokeResult = await circuitBreaker(
-    'Chokepoints',
-    () => { throw new Error('Chokepoint live adapter not yet provisioned'); },
+    'MarineTraffic:Chokepoints',
+    isMarineTrafficAvailable() ? getLiveChokepoints : () => { throw new Error('No MarineTraffic API key'); },
     getStaticChokepoints,
     'maritime_chokepoints',
-    (rows) => rows,
+    (rows) => rows.map(r => ({
+      source: r.source,
+      chokepoint_name: r.chokepoint_name,
+      status: r.status,
+      vessel_queue: r.vessel_queue,
+      transit_delay_hours: r.transit_delay_hours,
+      narrative_context: r.narrative_context,
+    })),
   );
 
-  // ── Risk Matrix (static — internal intelligence) ──
+  // ── Risk Matrix (static — internally curated, no live API) ──
   const riskResult = await circuitBreaker(
     'RiskMatrix',
     () => { throw new Error('Risk matrix is internally curated'); },
@@ -249,18 +297,19 @@ async function extract() {
     (rows) => rows,
   );
 
-  const freightData = freightResult.data;
-  const portData    = portResult.data;
-  const chokeData   = chokeResult.data;
-  const riskData    = riskResult.data;
+  const portData  = portResult.data;
+  const chokeData = chokeResult.data;
+  const riskData  = riskResult.data;
 
   const counts = {
     freightRoutes: (freightData.routes?.length || 0) + (freightData.spotContractSpreads?.length || 0) + (freightData.airFreight?.length || 0) + 1,
+    xenetaSpreads: freightData.spotContractSpreads?.length || 0,
     ports: Array.isArray(portData) ? portData.length : 0,
     chokepoints: Array.isArray(chokeData) ? chokeData.length : 0,
     risks: Array.isArray(riskData) ? riskData.length : 0,
     sources: {
       freight: freightResult.source,
+      xeneta: xenetaResult.source,
       ports: portResult.source,
       chokepoints: chokeResult.source,
       risk: riskResult.source,
@@ -449,7 +498,8 @@ async function loadTable(tableName, rows) {
 
   // Step 2: DML INSERT with VECTOR support (row-by-row for vector column)
   for (const row of rows) {
-    const { embedding, ...fields } = row;
+    const { embedding, ...originalFields } = row;
+    const fields = Object.fromEntries(Object.entries(originalFields).filter(([_, v]) => v != null));
     const columns = Object.keys(fields);
     const placeholders = columns.map(c => `@${c}`);
 

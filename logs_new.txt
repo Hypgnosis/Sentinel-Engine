@@ -1,0 +1,101 @@
+LEVEL     NAME               EXECUTION_ID  TIME_UTC                 LOG
+WARNING   sentinelinference  l2zdrd3rk7uh  2026-04-05 01:26:43.631  Rate limit exceeded (5 reqs / 10s)
+WARNING   sentinelinference                2026-04-05 01:26:43.557
+WARNING   sentinelinference  l2zdmip8gl4r  2026-04-05 01:26:43.447  Rate limit exceeded (5 reqs / 10s)
+WARNING   sentinelinference                2026-04-05 01:26:43.382
+WARNING   sentinelinference  l2zdi408uoru  2026-04-05 01:26:43.275  Rate limit exceeded (5 reqs / 10s)
+WARNING   sentinelinference                2026-04-05 01:26:43.223
+WARNING   sentinelinference  l2zdd40c73pe  2026-04-05 01:26:43.114  Rate limit exceeded (5 reqs / 10s)
+WARNING   sentinelinference                2026-04-05 01:26:43.043
+WARNING   sentinelinference  l2zd8jtxk725  2026-04-05 01:26:42.937  Rate limit exceeded (5 reqs / 10s)
+WARNING   sentinelinference                2026-04-05 01:26:42.876
+CRITICAL  sentinelinference  l2zd2g49mqqg  2026-04-05 01:26:42.766
+D         sentinelinference  l2zd2g49mqqg  2026-04-05 01:26:42.732
+I         sentinelinference  l2zd2g49mqqg  2026-04-05 01:26:42.732
+E         sentinelinference                2026-04-05 01:26:42.659
+CRITICAL  sentinelinference  l2zcwtdqhkel  2026-04-05 01:26:42.551
+D         sentinelinference  l2zcwtdqhkel  2026-04-05 01:26:42.523
+I         sentinelinference  l2zcwtdqhkel  2026-04-05 01:26:42.523
+E         sentinelinference                2026-04-05 01:26:42.456
+CRITICAL  sentinelinference  l2zcqv11fene  2026-04-05 01:26:42.344
+D         sentinelinference  l2zcqv11fene  2026-04-05 01:26:42.309
+I         sentinelinference  l2zcqv11fene  2026-04-05 01:26:42.308
+E         sentinelinference                2026-04-05 01:26:42.242
+CRITICAL  sentinelinference  l2zcke20mb7j  2026-04-05 01:26:42.138
+D         sentinelinference  l2zcke20mb7j  2026-04-05 01:26:42.096
+I         sentinelinference  l2zcke20mb7j  2026-04-05 01:26:42.096
+E         sentinelinference                2026-04-05 01:26:42.009
+CRITICAL  sentinelinference  l2z9f9gjv2kc  2026-04-05 01:26:41.755
+D         sentinelinference  l2z9f9gjv2kc  2026-04-05 01:26:39.536
+I         sentinelinference  l2z9f9gjv2kc  2026-04-05 01:26:39.536
+E         sentinelinference                2026-04-05 01:26:37.931
+WARNING   sentinelinference                2026-04-05 01:14:13.926
+I         sentinelinference                2026-04-05 01:14:13.773  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-05 01:14:12.762  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+I         sentinelinference                2026-04-05 01:14:12.738
+WARNING   sentinelinference  kzgbjw91d0vb  2026-04-04 23:47:55.388
+WARNING   sentinelinference                2026-04-04 23:47:55.382
+WARNING   sentinelinference  kzgbgta91338  2026-04-04 23:47:55.277
+WARNING   sentinelinference                2026-04-04 23:47:55.272
+WARNING   sentinelinference  kzgbdpj7p2ff  2026-04-04 23:47:55.165
+WARNING   sentinelinference                2026-04-04 23:47:55.161
+WARNING   sentinelinference  kzgbambj9ne9  2026-04-04 23:47:55.054
+WARNING   sentinelinference                2026-04-04 23:47:55.048
+WARNING   sentinelinference  kzgb7h1j52rd  2026-04-04 23:47:54.941
+WARNING   sentinelinference                2026-04-04 23:47:54.936
+WARNING   sentinelinference  kzgb4dw3t7pn  2026-04-04 23:47:54.829
+WARNING   sentinelinference                2026-04-04 23:47:54.824
+WARNING   sentinelinference  kzgb17x4of5h  2026-04-04 23:47:54.715
+WARNING   sentinelinference                2026-04-04 23:47:54.710
+WARNING   sentinelinference  kzgay312dcuc  2026-04-04 23:47:54.603
+WARNING   sentinelinference                2026-04-04 23:47:54.597
+WARNING   sentinelinference  kzgauxaspt64  2026-04-04 23:47:54.490
+WARNING   sentinelinference                2026-04-04 23:47:54.483
+WARNING   sentinelinference  kzgag7cayu0j  2026-04-04 23:47:54.216
+I         sentinelinference                2026-04-04 23:47:53.881  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-04 23:47:53.135  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+WARNING   sentinelinference                2026-04-04 23:47:53.110
+I         sentinelinference                2026-04-04 22:11:13.712  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-04 22:11:13.004  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-04 22:11:12.994  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-04 22:11:12.621  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+WARNING   sentinelinference                2026-04-04 22:11:12.619
+I         sentinelinference                2026-04-04 22:11:12.112  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+I         sentinelinference                2026-04-04 22:11:12.112  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+WARNING   sentinelinference                2026-04-04 22:11:12.097
+WARNING   sentinelinference                2026-04-04 22:11:12.070
+WARNING   sentinelinference                2026-04-03 16:18:58.094
+I         sentinelinference                2026-04-03 16:18:57.994
+WARNING   sentinelinference                2026-04-03 16:18:49.147
+I         sentinelinference                2026-04-03 16:18:49.054
+WARNING   sentinelinference                2026-04-03 16:18:28.616
+I         sentinelinference                2026-04-03 16:18:28.519
+WARNING   sentinelinference                2026-04-03 16:18:25.298
+I         sentinelinference                2026-04-03 16:18:25.204
+WARNING   sentinelinference                2026-04-03 16:18:17.362
+I         sentinelinference                2026-04-03 16:18:17.146  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-03 16:18:16.317  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+I         sentinelinference                2026-04-03 16:18:16.297
+WARNING   sentinelinference                2026-04-03 15:34:20.916
+I         sentinelinference                2026-04-03 15:34:20.816
+WARNING   sentinelinference                2026-04-03 15:33:43.956
+WARNING   sentinelinference                2026-04-03 15:33:40.377
+I         sentinelinference                2026-04-03 15:33:40.254  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-03 15:33:39.460  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+I         sentinelinference                2026-04-03 15:33:39.399
+I         sentinelinference                2026-04-03 05:57:02.911  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-03 05:57:01.648  Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+WARNING   sentinelinference                2026-04-02 19:08:25.687
+I         sentinelinference                2026-04-02 18:58:43.768  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-02 18:58:42.337  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+WARNING   sentinelinference                2026-04-02 18:58:42.320
+WARNING   sentinelinference                2026-04-02 16:37:12.704
+I         sentinelinference                2026-04-02 16:37:12.604
+WARNING   sentinelinference                2026-04-02 16:27:29.776
+I         sentinelinference                2026-04-02 16:27:29.561  Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+I         sentinelinference                2026-04-02 16:27:28.017  Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+I         sentinelinference                2026-04-02 16:27:27.932
+CRITICAL  sentinelinference  hmp33ni8v11f  2026-04-02 15:27:30.846
+I         sentinelinference  hmp33ni8v11f  2026-04-02 15:27:30.803
+E         sentinelinference                2026-04-02 15:27:30.798
+I         sentinelinference                2026-04-02 15:27:30.704

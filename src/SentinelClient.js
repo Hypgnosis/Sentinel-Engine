@@ -139,6 +139,7 @@ export class SentinelClient {
       confidence: structured.confidence ?? null,
       sources: structured.sources || [],
       dataAuthority: structured.dataAuthority || data.infrastructure || 'UNKNOWN',
+      audioBase64: data.audioBase64 || null,
       requestId: data.requestId,
       model: data.model,
       timestamp: data.timestamp,

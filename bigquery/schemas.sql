@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.freight_indices (
   week_over_week_change   FLOAT64,
   trend                   STRING,
   narrative_context       STRING,
-  embedding               VECTOR<FLOAT64>(768)
+  embedding               ARRAY<FLOAT64>
 ) PARTITION BY DATE(ingested_at)
   CLUSTER BY tenant_id;
 
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.port_congestion (
   avg_wait_days           FLOAT64,
   severity_level          STRING,
   narrative_context       STRING,
-  embedding               VECTOR<FLOAT64>(768)
+  embedding               ARRAY<FLOAT64>
 ) PARTITION BY DATE(ingested_at)
   CLUSTER BY tenant_id;
 
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.maritime_chokepoints (
   vessel_queue            INT64,
   transit_delay_hours     FLOAT64,
   narrative_context       STRING,
-  embedding               VECTOR<FLOAT64>(768)
+  embedding               ARRAY<FLOAT64>
 ) PARTITION BY DATE(ingested_at)
   CLUSTER BY tenant_id;
 
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.risk_matrix (
   probability             STRING,
   impact_window           STRING,
   narrative_context       STRING,
-  embedding               VECTOR<FLOAT64>(768)
+  embedding               ARRAY<FLOAT64>
 ) PARTITION BY DATE(ingested_at)
   CLUSTER BY tenant_id;
 
@@ -116,7 +116,8 @@ CREATE TABLE IF NOT EXISTS sentinel_warehouse.risk_matrix (
 CREATE OR REPLACE ROW ACCESS POLICY rls_freight_tenant
   ON sentinel_warehouse.freight_indices
   GRANT TO (
-    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "user:luisfmartinez11@gmail.com"
   )
   FILTER USING (TRUE);
 
@@ -126,14 +127,14 @@ CREATE OR REPLACE ROW ACCESS POLICY rls_freight_tenant_scoped
     "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
     "allAuthenticatedUsers"
   )
-  FILTER USING (tenant_id = SESSION_USER()
-    OR tenant_id = CAST(@@query.tenant_id AS STRING));
+  FILTER USING (tenant_id = SESSION_USER());
 
 -- ── RLS Policy: port_congestion ──
 CREATE OR REPLACE ROW ACCESS POLICY rls_port_tenant
   ON sentinel_warehouse.port_congestion
   GRANT TO (
-    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "user:luisfmartinez11@gmail.com"
   )
   FILTER USING (TRUE);
 
@@ -143,14 +144,14 @@ CREATE OR REPLACE ROW ACCESS POLICY rls_port_tenant_scoped
     "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
     "allAuthenticatedUsers"
   )
-  FILTER USING (tenant_id = SESSION_USER()
-    OR tenant_id = CAST(@@query.tenant_id AS STRING));
+  FILTER USING (tenant_id = SESSION_USER());
 
 -- ── RLS Policy: maritime_chokepoints ──
 CREATE OR REPLACE ROW ACCESS POLICY rls_chokepoint_tenant
   ON sentinel_warehouse.maritime_chokepoints
   GRANT TO (
-    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "user:luisfmartinez11@gmail.com"
   )
   FILTER USING (TRUE);
 
@@ -160,14 +161,14 @@ CREATE OR REPLACE ROW ACCESS POLICY rls_chokepoint_tenant_scoped
     "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
     "allAuthenticatedUsers"
   )
-  FILTER USING (tenant_id = SESSION_USER()
-    OR tenant_id = CAST(@@query.tenant_id AS STRING));
+  FILTER USING (tenant_id = SESSION_USER());
 
 -- ── RLS Policy: risk_matrix ──
 CREATE OR REPLACE ROW ACCESS POLICY rls_risk_tenant
   ON sentinel_warehouse.risk_matrix
   GRANT TO (
-    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com"
+    "serviceAccount:sentinel-etl-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
+    "user:luisfmartinez11@gmail.com"
   )
   FILTER USING (TRUE);
 
@@ -177,5 +178,4 @@ CREATE OR REPLACE ROW ACCESS POLICY rls_risk_tenant_scoped
     "serviceAccount:sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com",
     "allAuthenticatedUsers"
   )
-  FILTER USING (tenant_id = SESSION_USER()
-    OR tenant_id = CAST(@@query.tenant_id AS STRING));
+  FILTER USING (tenant_id = SESSION_USER());
