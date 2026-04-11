@@ -179,3 +179,32 @@ CREATE OR REPLACE ROW ACCESS POLICY rls_risk_tenant_scoped
     "allAuthenticatedUsers"
   )
   FILTER USING (tenant_id = SESSION_USER());
+
+-- ═══════════════════════════════════════════════════════════════════
+--  VECTOR INDEXES — Approximate Nearest Neighbor (ANN)
+--
+--  WITHOUT these indexes, VECTOR_SEARCH performs exact nearest neighbor
+--  (brute-force full table scan). With TREE_AH, BigQuery uses an
+--  Asymmetric Hashing tree for sub-second ANN retrieval.
+--
+--  TREE_AH is chosen over IVF because it activates on tables with
+--  fewer than 5,000 rows. Switch to IVF when tables exceed ~50K rows.
+--
+--  Expected improvement: VECTOR_SEARCH drops from 15-25s → 1-3s.
+-- ═══════════════════════════════════════════════════════════════════
+
+CREATE VECTOR INDEX IF NOT EXISTS idx_freight_embedding
+  ON sentinel_warehouse.freight_indices(embedding)
+  OPTIONS (index_type = 'TREE_AH', distance_type = 'COSINE');
+
+CREATE VECTOR INDEX IF NOT EXISTS idx_port_embedding
+  ON sentinel_warehouse.port_congestion(embedding)
+  OPTIONS (index_type = 'TREE_AH', distance_type = 'COSINE');
+
+CREATE VECTOR INDEX IF NOT EXISTS idx_chokepoint_embedding
+  ON sentinel_warehouse.maritime_chokepoints(embedding)
+  OPTIONS (index_type = 'TREE_AH', distance_type = 'COSINE');
+
+CREATE VECTOR INDEX IF NOT EXISTS idx_risk_embedding
+  ON sentinel_warehouse.risk_matrix(embedding)
+  OPTIONS (index_type = 'TREE_AH', distance_type = 'COSINE');

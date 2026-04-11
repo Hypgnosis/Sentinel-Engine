@@ -17,6 +17,10 @@
     "@google-cloud/bigquery": "^7.9.0",
     "@google-cloud/secret-manager": "^5.6.0",
     "@google/genai": "^1.48.0",
-    "axios": "^1.7.0"
+    "axios": "^1.7.0",
+    "dotenv": "^17.4.1",
+    "pg": "^8.20.0",
+    "postgres": "^3.4.9",
+    "zod": "^4.3.6"
   }
 }

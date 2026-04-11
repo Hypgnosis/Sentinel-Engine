@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  /* The Background Canvas (Enterprise Dark — Rose Rocket Obsidian) */
-  --color-obsidian: #0A0A0A;
-  --color-obsidian-light: #111111;
-  --color-obsidian-mid: #1A1A1A;
-  --color-obsidian-border: #2A2A2A;
+  /* The Background Canvas (Sentinel v4.5 Cyber-Space) */
+  --color-obsidian: #0F0F1B;
+  --color-obsidian-light: #161625;
+  --color-obsidian-mid: #1D1D2F;
+  --color-obsidian-border: #2D2D44;
 
-  /* The Primary Brand Accent (Rose Rocket Lime Green #C4D600) */
-  --color-cyber-purple: #C4D600;
-  --color-cyber-purple-dim: rgba(196, 214, 0, 0.15);
-  --color-cyber-purple-glow: rgba(196, 214, 0, 0.4);
+  /* The Primary Brand Accent (Cyber-Purple #D4B2FF) */
+  --color-cyber-purple: #D4B2FF;
+  --color-cyber-purple-dim: rgba(212, 178, 255, 0.15);
+  --color-cyber-purple-glow: rgba(212, 178, 255, 0.4);
 
   /* The Secondary/Text Accent (Clean White) */
   --color-amber-gold: #FFFFFF;
@@ -26,8 +26,8 @@
   --color-text-muted: #555555;
 
   /* Status */
-  --color-success: #C4D600;
-  --color-danger: #FF3366;
+  --color-success: #D4B2FF;
+  --color-danger: #FF7EB6;
 
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;

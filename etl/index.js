@@ -56,6 +56,15 @@ import {
   getChokepoints as getLiveChokepoints,
   isAvailable as isMarineTrafficAvailable,
 } from './adapters/marinetraffic.js';
+import { 
+  validate, 
+  FreightIndexSchema, 
+  XenetaSpreadSchema, 
+  PortCongestionSchema, 
+  ChokepointSchema, 
+  RiskMatrixSchema 
+} from './schemas.js';
+import { sql, upsertRow, closeDb } from './db.js';
 
 // ─────────────────────────────────────────────────────
 //  CONFIGURATION
@@ -231,6 +240,12 @@ async function extract() {
     }),
   );
 
+  // Validate Freightos global & routes
+  if (freightResult.data.global) {
+    validate(FreightIndexSchema, freightResult.data.global, 'Freightos:Global');
+  }
+  (freightResult.data.routes || []).forEach(r => validate(FreightIndexSchema, r, 'Freightos:Route'));
+
   // ── Xeneta Spot/Contract Spreads (Xeneta live → BQ cache → static) ──
   const xenetaResult = await circuitBreaker(
     'Xeneta',
@@ -249,6 +264,9 @@ async function extract() {
         narrative_context: r.narrative_context,
       })),
   );
+
+  // Validate Xeneta spreads
+  (xenetaResult.data || []).forEach(s => validate(XenetaSpreadSchema, s, 'Xeneta'));
 
   // Merge Xeneta spreads into the freight data envelope
   const freightData = freightResult.data;
@@ -272,6 +290,9 @@ async function extract() {
     })),
   );
 
+  // Validate Port data
+  (portResult.data || []).forEach(p => validate(PortCongestionSchema, p, 'MarineTraffic:Ports'));
+
   // ── Chokepoints (MarineTraffic live → BQ cache → static) ──
   const chokeResult = await circuitBreaker(
     'MarineTraffic:Chokepoints',
@@ -288,6 +309,9 @@ async function extract() {
     })),
   );
 
+  // Validate Chokepoint data
+  (chokeResult.data || []).forEach(c => validate(ChokepointSchema, c, 'MarineTraffic:Chokepoints'));
+
   // ── Risk Matrix (static — internally curated, no live API) ──
   const riskResult = await circuitBreaker(
     'RiskMatrix',
@@ -296,6 +320,9 @@ async function extract() {
     'risk_matrix',
     (rows) => rows,
   );
+
+  // Validate Risk Matrix
+  (riskResult.data || []).forEach(r => validate(RiskMatrixSchema, r, 'RiskMatrix'));
 
   const portData  = portResult.data;
   const chokeData = chokeResult.data;
@@ -516,7 +543,20 @@ async function loadTable(tableName, rows) {
     });
   }
 
-  log('INFO', 'ETL_LOAD_COMPLETE', { table: tableName, rowsInserted: rows.length });
+  log('INFO', 'ETL_LOAD_BQ_COMPLETE', { table: tableName, rowsInserted: rows.length });
+
+  // Step 3: Upsert into PostgreSQL (Pristine Reservoir)
+  if (sql) {
+    log('INFO', 'ETL_LOAD_POSTGRES_START', { table: tableName });
+    try {
+      for (const row of rows) {
+        await upsertRow(tableName, row);
+      }
+      log('INFO', 'ETL_LOAD_POSTGRES_COMPLETE', { table: tableName, rowsUpserted: rows.length });
+    } catch (err) {
+      log('ERROR', 'ETL_LOAD_POSTGRES_FAILURE', { table: tableName, error: err.message });
+    }
+  }
 }
 
 /**
@@ -558,6 +598,13 @@ async function main() {
   console.log('╚══════════════════════════════════════════════════════════╝');
 
   try {
+    // ── Pre-flight: Fetch Database URL from Secret Manager ──
+    const dbUrl = await getSecret('DATABASE_URL');
+    if (dbUrl) {
+      process.env.DATABASE_URL = dbUrl;
+      log('INFO', 'DATABASE_URL_LOADED');
+    }
+
     // Stage 1: Extract (live-first w/ circuit breaker)
     const rawData = await extract();
 
@@ -575,6 +622,10 @@ async function main() {
     });
 
     console.log(`\n[SENTINEL ETL] Pipeline complete in ${Math.round(durationMs / 1000)}s.`);
+    
+    // Close database connection
+    await closeDb();
+    
     process.exit(0);
 
   } catch (error) {

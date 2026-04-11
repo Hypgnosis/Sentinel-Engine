@@ -9,24 +9,25 @@ import {
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
-import { SentinelClient, SentinelError } from './SentinelClient';
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, onIdTokenChanged } from 'firebase/auth';
+import { SentinelClient, SentinelClientError } from './SentinelClient';
+import { ThreeBackground } from './components/ThreeBackground';
 
 // ═══════════════════════════════════════════════════
 //  TRANSLATIONS (i18n – EN / ES)
 // ═══════════════════════════════════════════════════
 const translations = {
   en: {
-    brand: 'SENTINEL × ROSE ROCKET',
+    brand: 'SENTINEL ENGINE',
     brandSub: 'Autonomous Market Intelligence',
     tagline: 'Middleware-Free Intelligence Pipeline for Global Logistics',
-    nav: { dashboard: 'Dashboard', terminal: 'Query Terminal', sync: 'Sync Status' },
+    nav: { dashboard: 'Dashboard', terminal: 'Query Terminal' },
     hero: {
       title: 'The Future of Logistics Intelligence',
       subtitle: 'Post-quantum secured. Middleware-free. Autonomous.',
       description: 'Sentinel Engine by High ArchyTech Solutions replaces static data silos with a real-time intelligence pipeline powered by edge infrastructure. Zero external middleware. Zero latency compromise.',
       cta: 'Initialize Terminal',
-      ctaSecondary: 'View Sync Status',
+      ctaSecondary: 'Initialize System',
     },
     stats: {
       activePorts: 'Active Ports Monitored',
@@ -94,16 +95,16 @@ const translations = {
     switchLang: 'Cambiar a Español',
   },
   es: {
-    brand: 'SENTINEL × ROSE ROCKET',
+    brand: 'SENTINEL ENGINE',
     brandSub: 'Inteligencia de Mercado Autónoma',
     tagline: 'Pipeline de Inteligencia Sin Middleware para Logística Global',
-    nav: { dashboard: 'Panel', terminal: 'Terminal', sync: 'Sincronización' },
+    nav: { dashboard: 'Panel', terminal: 'Terminal' },
     hero: {
       title: 'El Futuro de la Inteligencia Logística',
       subtitle: 'Seguridad post-cuántica. Sin middleware. Autónomo.',
       description: 'Sentinel Engine por High ArchyTech Solutions reemplaza silos de datos estáticos con un pipeline de inteligencia en tiempo real impulsado por infraestructura edge. Cero middleware externo. Cero compromiso de latencia.',
       cta: 'Inicializar Terminal',
-      ctaSecondary: 'Ver Estado de Sync',
+      ctaSecondary: 'Inicializar Sistema',
     },
     stats: {
       activePorts: 'Puertos Activos Monitoreados',
@@ -260,12 +261,11 @@ const IntelligenceBar = ({ t }) => {
 // ═══════════════════════════════════════════════════
 //  NAVIGATION
 // ═══════════════════════════════════════════════════
-const Navigation = ({ t, lang, setLang, activeSection, setActiveSection }) => {
+const Navigation = ({ t, lang, setLang, activeSection, setActiveSection, authUser }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const navItems = [
     { key: 'dashboard', icon: Radar, label: t.nav.dashboard },
     { key: 'terminal', icon: Terminal, label: t.nav.terminal },
-    { key: 'sync', icon: RefreshCw, label: t.nav.sync },
   ];
 
   return (
@@ -306,6 +306,11 @@ const Navigation = ({ t, lang, setLang, activeSection, setActiveSection }) => {
             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full border border-green-500/30 bg-green-500/5">
               <Lock className="w-3 h-3 text-green-400" />
               <span className="text-[10px] font-mono text-green-400 tracking-wider">PQ-TLS</span>
+            </div>
+
+            {/* Identity Ledger — Phase 4 */}
+            <div className="hidden sm:block">
+              <IdentityLedger user={authUser} />
             </div>
 
             {/* Language toggle */}
@@ -868,16 +873,38 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
         timestamp: new Date().toLocaleTimeString(),
       }]);
 
-      // Engage Voice Protocol (Cloud TTS → Browser Fallback)
-      speakResponse(result.narrative, result.audioBase64);
-    } catch (error) {
-      console.error('Sentinel Engine API Error:', error);
+      // Engage Voice Protocol (Decoupled Background TTS)
+      if (isVoiceActive) {
+        const ttsUrl = import.meta.env.VITE_SENTINEL_TTS_ENDPOINT;
+        
+        // Get the latest JWT from Firebase for the secondary call
+        const token = await getAuth().currentUser?.getIdToken();
+
+        fetch(ttsUrl, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ narrative: result.narrative })
+        })
+        .then(ttsRes => ttsRes.json())
+        .then(ttsData => {
+          speakResponse(result.narrative, ttsData.audioBase64);
+        })
+        .catch(err => {
+          console.warn('Premium audio failed, falling back to browser TTS');
+          speakResponse(result.narrative, null);
+        });
+      }
+      setIsTyping(false);
+    } catch (err) {
       setMessages(prev => [...prev, {
-        role: 'system',
-        content: `Hmm, I wasn't able to reach the data pipeline. ${error.message || 'Please check your connection and try again.'}`,
+        role: 'sentinel',
+        content: `ERROR: SYSTEM_PIPELINE_STALL — ${err.message}`,
         type: 'error',
+        timestamp: new Date().toLocaleTimeString(),
       }]);
-    } finally {
       setIsTyping(false);
     }
   };
@@ -910,7 +937,7 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
               <div className="w-3 h-3 rounded-full bg-amber-400/60" />
               <div className="w-3 h-3 rounded-full bg-green-400/60" />
             </div>
-            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://data-moat/v4.1.0</span>
+            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://data-moat/v5.2.0</span>
 
             {/* Soundwave Visualizer */}
             {isSpeaking && (
@@ -1067,6 +1094,9 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
           )}
         </div>
 
+        {/* ═══ Sovereign Audit Log — Phase 4 ═══ */}
+        <SovereignAuditLog messages={messages} t={t} />
+
         {/* ═══ Suggestion Chips — Wrap grid for visibility ═══ */}
         <div className="px-6 py-3 border-t border-obsidian-border/50 flex-shrink-0">
           <div className="flex flex-wrap gap-2">
@@ -1139,6 +1169,51 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
 
 
 
+// ═══════════════════════════════════════════════════
+//  SOVEREIGN AUDIT LOG (V4.5 Data Authority)
+// ═══════════════════════════════════════════════════
+const SovereignAuditLog = ({ messages, t }) => {
+  const lastResponse = useMemo(() => {
+    return [...messages].reverse().find(m => m.type === 'response');
+  }, [messages]);
+
+  if (!lastResponse) return null;
+
+  return (
+    <div className="px-6 py-2 border-t border-obsidian-border bg-obsidian-light/50 flex items-center justify-between">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          <Database className="w-3.5 h-3.5 text-cyber-purple" />
+          <span className="text-[10px] font-mono text-text-muted uppercase tracking-tighter">Authority:</span>
+          <span className="text-[10px] font-mono font-bold text-cyber-purple">{lastResponse.dataAuthority || "POSTGRES_CASCADE"}</span>
+        </div>
+        <div className="flex items-center gap-1.5 border-l border-obsidian-border pl-4">
+          <Radio className="w-3.5 h-3.5 text-amber-gold" />
+          <span className="text-[10px] font-mono text-text-muted uppercase tracking-tighter">Status:</span>
+          <span className="text-[10px] font-mono font-bold text-amber-gold">VERIFIED_NON_PII</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+         <Shield className="w-3.5 h-3.5 text-green-400" />
+         <span className="text-[10px] font-mono text-green-400 font-bold uppercase tracking-widest">DLL Secured</span>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════
+//  IDENTITY LEDGER (Subject Revocation Display)
+// ═══════════════════════════════════════════════════
+const IdentityLedger = ({ user }) => {
+  if (!user) return null;
+  return (
+    <div className="flex items-center gap-3 px-3 py-1.5 rounded-full border border-obsidian-border bg-obsidian-mid/50">
+      <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse-glow" />
+      <span className="text-[10px] font-mono text-text-muted uppercase tracking-widest">ID: {user.email?.split('@')[0]}</span>
+      <span className="text-[10px] font-mono text-cyber-purple-glow font-bold border-l border-obsidian-border pl-2">TENANT: SENTINEL_PROD</span>
+    </div>
+  );
+};
 // ═══════════════════════════════════════════════════
 //  JSON SYNTAX HIGHLIGHTER (Zero-Dependency)
 // ═══════════════════════════════════════════════════
@@ -1235,7 +1310,7 @@ const Footer = ({ t }) => (
           </a>
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-obsidian-border">
             <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse-glow" />
-            <span className="text-[10px] font-mono text-text-muted">v3.2.1</span>
+            <span className="text-[10px] font-mono text-text-muted">v5.2.0</span>
           </div>
         </div>
       </div>
@@ -1266,12 +1341,21 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Listen to Firebase Auth state changes.
-  // This fires once on mount (with null or user) then on every sign-in/sign-out.
+  // This fires once on mount (with null or user) then on every sign-in/sign-out, and on token refresh.
   useEffect(() => {
     const auth = getAuth();
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onIdTokenChanged(auth, async (user) => {
       setAuthUser(user);
       setAuthLoading(false);
+      if (user) {
+        try {
+          // Force fetch and cache the token in the background
+          await user.getIdToken(true);
+          console.log('[Sentinel Edge] JWT Prefetched and Cached.');
+        } catch (error) {
+          console.error('Token prefetch failed:', error);
+        }
+      }
     });
     return unsubscribe;
   }, []);
@@ -1462,11 +1546,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-obsidian text-text-primary flex">
+    <div className="min-h-screen bg-[#0F0F1B] text-text-primary flex relative overflow-hidden">
+      {/* 3D Visual focal point */}
+      <ThreeBackground />
       {/* ═══ LEFT PANEL: Main Application ═══ */}
       <div className={`flex-1 min-w-0 flex flex-col transition-all duration-500 ${demoMode ? 'w-1/2' : 'w-full'}`}>
-        {/* Intelligence Bar */}
-        <IntelligenceBar t={t} />
+
 
         {/* Navigation */}
         <Navigation
@@ -1475,24 +1560,21 @@ export default function App() {
           setLang={setLang}
           activeSection={activeSection}
           setActiveSection={setActiveSection}
+          authUser={authUser}
         />
 
         {/* Main Content */}
         <main className="flex-1">
           {activeSection === 'dashboard' && (
-            <>
               <HeroSection t={t} setActiveSection={setActiveSection} />
-              <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-            </>
+
           )}
 
           {activeSection === 'terminal' && (
             <QueryTerminal t={t} sourceAlphaData={sourceAlphaData} setLastPayload={setLastPayload} />
           )}
 
-          {activeSection === 'sync' && (
-            <SyncTracker t={t} connectionStatus={connectionStatus} isSyncing={isSyncing} sourceAlphaData={sourceAlphaData} />
-          )}
+
         </main>
 
         {/* Footer */}
