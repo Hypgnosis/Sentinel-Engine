@@ -854,11 +854,15 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
           model: result.model || "gemini-2.5-flash",
           timestamp: new Date().toISOString(),
           data: {
-            narrative: result.narrative.substring(0, 50) + "...", // Truncated for visual impact
+            narrative: result.narrative.substring(0, 50) + "...",
             metrics: result.metrics,
             confidence: result.confidence,
             sources: result.sources
-          }
+          },
+          // V4.9-RC Fortress additions
+          verificationStatus: result.verificationStatus || 'pending',
+          isResilienceMode: result.isResilienceMode || false,
+          cacheStatus: result.cacheStatus || 'MISS_FETCHED',
         });
       }
 
@@ -869,6 +873,9 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
         confidence: result.confidence,
         sources: result.sources,
         dataAuthority: result.dataAuthority,
+        verificationStatus: result.verificationStatus || 'pending',
+        isResilienceMode: result.isResilienceMode || false,
+        cacheStatus: result.cacheStatus,
         type: 'response',
         timestamp: new Date().toLocaleTimeString(),
       }]);
@@ -937,7 +944,7 @@ const QueryTerminal = ({ t, sourceAlphaData, setLastPayload }) => {
               <div className="w-3 h-3 rounded-full bg-amber-400/60" />
               <div className="w-3 h-3 rounded-full bg-green-400/60" />
             </div>
-            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://data-moat/v5.2.0</span>
+            <span className="text-[10px] font-mono text-text-muted ml-2 tracking-wider">SENTINEL://fortress/v4.9-RC</span>
 
             {/* Soundwave Visualizer */}
             {isSpeaking && (

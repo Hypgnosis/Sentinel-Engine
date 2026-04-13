@@ -1,7 +1,7 @@
 {
   "name": "sentinel-engine-core",
-  "version": "4.5.2",
-  "description": "Sentinel Engine — Sovereign Intelligence Layer (Cloud Function, Production)",
+  "version": "4.9.0-rc",
+  "description": "Sentinel Engine — Sovereign Intelligence Layer (Cloud Function, V4.9-RC Fortress)",
   "main": "index.js",
   "engines": {
     "node": ">=20"
@@ -11,6 +11,7 @@
     "seed": "node seed-firestore.js",
     "deploy": "gcloud functions deploy sentinelInference --gen2 --runtime=nodejs20 --region=us-central1 --trigger-http --cpu=1 --memory=512Mi --timeout=300s --min-instances=1 --entry-point=sentinelInference --source=. --project=ha-sentinel-core-v21 --service-account=sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com --ingress-settings=all",
     "deploy-tts": "gcloud functions deploy sentinelTTS --gen2 --runtime=nodejs20 --region=us-central1 --trigger-http --cpu=1 --memory=512Mi --timeout=300s --entry-point=sentinelTTS --source=. --project=ha-sentinel-core-v21 --service-account=sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com --ingress-settings=all",
+    "deploy-verification": "gcloud functions deploy sentinelVerification --gen2 --runtime=nodejs20 --region=us-central1 --trigger-http --cpu=1 --memory=256Mi --timeout=60s --entry-point=sentinelVerification --source=. --project=ha-sentinel-core-v21 --service-account=sentinel-inference-sa@ha-sentinel-core-v21.iam.gserviceaccount.com --ingress-settings=all",
     "provision-tenant": "node ../scripts/provision_tenant.js"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "cors": "^2.8.6",
     "firebase-admin": "^13.0.0",
     "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^3.1.0",
     "postgres": "^3.4.9",
     "zod": "^4.3.6"
   }
