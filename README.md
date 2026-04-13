@@ -1,39 +1,107 @@
-# The Sentinel Engine (V4.5.2 Hardened)
-**Autonomous Logistics Intelligence — PostgreSQL Pristine Reservoir Edition**
-⚠️ **Architecture Notice: V4.5.2 "Hardened" Release**
-> **Critical Update:** As of version 4.5.2, the Sentinel Engine has fully transitioned from legacy BigQuery warehousing to a high-concurrency **PostgreSQL Pristine Reservoir** (Neon/Supabase). This update locks the engine into `POSTGRES_ONLY` mode, delivering sub-4s latencies and enterprise-grade Row Level Security (RLS).
-## 📖 Executive Summary
-The Sentinel Engine is a sovereign, real-time AI analytics platform designed for the global logistics and maritime freight sector. V4.5.2 represents a total architectural hardening, moving the "Brain" of the operation into a dedicated vector-enabled PostgreSQL environment. 
-By bypassing traditional warehouse latency, the engine delivers instant, cryptographically secure supply chain intelligence with a focus on high-fidelity RAG (Retrieval-Augmented Generation) and zero-trust multi-tenancy.
-## 🏗️ Hardened Architecture (V4.5.2)
-### 1. The PostgreSQL Pristine Reservoir (Neon/Supabase)
-We have deprecated the sluggish multi-hop BigQuery retrieval. The engine now operates on a lightning-fast Postgres layer:
-* **Vector Intelligence:** Utilizes `pgvector` with 768-dimensional embeddings (text-embedding-004) for millisecond-range semantic search.
-* **Lazy Connection Pooling:** Implements an asynchronous, on-demand connection strategy via Supabase Transaction Poolers (Port 6543) to handle high-concurrency demo spikes without cold-start crashes.
-* **8KB Context Window:** An expanded 8192-byte retrieval buffer ensures complex supply chain risk matrices are fed to the LLM with zero truncation artifacts.
-### 2. Zero-Trust Identity & Sovereign RLS
-Security is not an afterthought; it is built into the database schema:
-* **Row Level Security (RLS):** Every table in the Reservoir is protected by mandatory RLS policies. Data is strictly isolated at the SQL level using `tenant_id` anchors.
-* **Identity Ledger:** The React edge client mints Firebase JWTs which are cryptographically verified by the engine. The database then enforces tenant isolation via secure session variables, ensuring a "Naked" engine never touches production data.
-### 3. High-Performance Serverless Compute
-The Sentinel Engine now runs on a "Strategic Hardware" tier in Google Cloud Run:
-* **Compute Power:** Upgraded to **1 vCPU** and **512MiB RAM** to eliminate throttling during long-context RAG synthesis.
-* **POSTGRES_ONLY Mode:** The engine is hard-locked to the Pristine Reservoir, achieving sub-4s end-to-end response times (P95 < 2.5s).
-### 4. Studio-Quality UX & Interactive 3D
-The Dashboard features a premium, interactive 3D hero experience powered by **React Three Fiber** and **Drei**.
-* **Tactical Finish:** Utilizes `<meshPhysicalMaterial>` with transmission and clearcoat for glass/metal aesthetics.
-* **Zero-Snap Transitions:** All 3D state changes (rotation, scale, color) are mathematically interpolated inside a `useFrame` loop for a premium, tactile feel.
-## 📊 V4.5.2 Production Benchmarks
-The current architecture is live and certified. Telemetry from the `rose_rocket` tenant shows:
-* **End-to-End Latency:** **1.8s - 3.9s** (Target: < 4.0s).
-* **Structural Integrity:** 100% JSON compliance (Confidence, Authority, Source Arrays).
-* **Data Authority:** Verified as `POSTGRES_PRISTINE_RESERVOIR`.
-* **Live Dashboard:** [https://sentinel-engine.netlify.app/](https://sentinel-engine.netlify.app/)
-## 💻 Technical Stack
-* **frontend:** React 19, Vite 8, Tailwind CSS v4, Three.js (R3F).
-* **identity:** Firebase Auth (Sovereign JWT).
-* **compute:** Google Cloud Run (Node.js 20, 1 vCPU, 512Mi).
-* **database:** PostgreSQL (Neon), Supabase (Auth/RLS).
-* **intelligence:** Gemini 2.5 Flash, Vertex AI (text-embedding-004).
-* **deployment:** Split-Architecture (Netlify Frontend / Cloud Run Backend).
+# Sentinel Engine V4.9-RC "Fortress"
 
+**Sovereign Intelligence & Logic Pilot for Global Logistics**
+
+| | |
+|---|---|
+| **Version** | 4.9.0-RC (Release Candidate) |
+| **Architecture Status** | Hardened / Zero-Trust |
+| **Target** | Enterprise Tier 1 Logistics & High-Sovereignty Operations |
+
+---
+
+## 🏛️ Executive Summary
+
+The Sentinel Engine is a **deterministic inference framework** designed to bridge the gap between non-deterministic Large Language Models (LLMs) and the high-liability requirements of global trade.
+
+While V4.5 focused on raw performance, **V4.9-RC (The Fortress)** introduces a "Management Plane" that polices AI hallucinations, ensures sub-4s latency under failure conditions, and provides a clear architectural path to **V5.0 Hardware Sovereignty**.
+
+---
+
+## 🏗️ The "Fortress" Architecture
+
+Sentinel V4.9-RC utilizes a **Multi-Layer Verification Loop** to ensure that every byte of generated intelligence is cross-referenced against the **Pristine Reservoir** (Source Grounding).
+
+### 🛡️ 1. PEP Gate (Policy Enforcement Point)
+
+A zero-trust security boundary implementing independent **JWKS** (JSON Web Key Set) signature verification.
+
+- **Validation:** Every request is verified at the server gate before touching the database.
+- **Identity:** Native integration with Supabase/Firebase for immutable tenant isolation.
+
+### 🧠 2. Recursive Schema Decomposition
+
+Moving beyond simple JSON prompting, the **Deterministic Logic Layer (DLL)** uses **Zod** to enforce strict schema compliance.
+
+- **Modular Recovery:** If a specific sub-module (e.g., Risk Matrix) fails validation, the engine performs a recursive retry at *T=0.1* for that module only.
+- **Stability:** Eliminates frontend crashes caused by malformed LLM outputs.
+
+### ⚖️ 3. Adversarial NLI (The Prosecutor)
+
+A background verification sidecar powered by `gemini-2.0-flash-lite`.
+
+- **The Loop:** Acts as a "Digital Prosecutor," scanning the primary inference for semantic contradictions against raw source logs.
+- **Outcome:** Real-time trust-level grading and automated flagging of hallucinations.
+
+### 🌑 4. Resilience Layer (Upstash SWR)
+
+High-availability caching using Serverless Redis with a **Context-Aware TTL Matrix**.
+
+- **SWR Pattern:** Stale-While-Revalidate ensures the UI remains operational even during a total database blackout.
+- **Circuit Breaker:** Automatically pivots to "Resilience Mode" after 3 consecutive reservoir failures.
+
+---
+
+## 🧱 The V5.0 Sovereign Roadmap
+
+Sentinel V4.9-RC is **HSM-Ready**. The codebase utilizes a `SecurityManager` repository pattern, allowing for a seamless upgrade to Hardware Security Modules (FIPS 140-2) for Tier 1 Enterprise clients.
+
+| Feature | Pilot (V4.9-RC) | Enterprise Sovereign (V5.0) |
+|---|---|---|
+| **Key Storage** | Software-backed (Cloud KMS) | Hardware-backed (Cloud HSM) |
+| **Isolation** | Shared Multi-tenant | Dedicated Sovereign Cell |
+| **Authority** | High ArchyTech Managed | Client-Owned "Kill Switch" |
+
+---
+
+## 🛠️ Technical Stack
+
+- **Runtime:** Node.js (V8) on Google Cloud Run
+- **Inference:** Gemini 1.5 Pro (Primary) + Gemini 2.0 Flash-Lite (Prosecutor)
+- **Database:** PostgreSQL (pgvector) + Supabase
+- **Cache:** Upstash Redis (Serverless)
+- **Validation:** Zod 3.x
+- **Frontend:** React + Three.js (Fiber) with 2D Memoized Fallback
+
+---
+
+## 🚀 Deployment
+
+```bash
+# Clone the Sovereign Node
+git clone https://github.com/high-archytech/sentinel-engine-v4.9.git
+
+# Provision Infrastructure
+terraform init
+terraform apply -target=module.sovereign_cell
+
+# Deploy Engine
+cd functions
+npm run deploy-rc
+```
+
+---
+
+## 🤝 Verification Loop
+
+To maintain the "Fortress" posture, all commits must pass the **Systemic Maturity Check:**
+
+```bash
+npm run build              # Production Bundle
+npx tsc --noEmit           # Type Verification
+sentinel-audit --secret-scan  # Zero-Leakage Policy
+```
+
+---
+
+*Built by **High ArchyTech**. Moving the world's data with Sovereign Integrity.*
