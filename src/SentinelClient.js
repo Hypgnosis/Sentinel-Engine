@@ -31,6 +31,9 @@ export class SentinelError extends Error {
   }
 }
 
+// Alias for backward compatibility (App.jsx imports SentinelClientError)
+export { SentinelError as SentinelClientError };
+
 /**
  * Headless Sentinel Engine client.
  * Abstracts all API communication behind a clean interface.
@@ -143,6 +146,16 @@ export class SentinelClient {
       requestId: data.requestId,
       model: data.model,
       timestamp: data.timestamp,
+      // V4.9-RC Fortress additions
+      verificationStatus: data.verificationStatus || null,
+      isResilienceMode: data.isResilienceMode || false,
+      cacheStatus: data.cacheStatus || null,
+      authMethod: data.authMethod || null,
+      // Sub-schema decomposition (V4.9-RC DLL)
+      geography: structured.geography || null,
+      riskMatrix: structured.riskMatrix || null,
+      executiveAction: structured.executiveAction || null,
+      recommendations: structured.executiveAction?.recommendations || [],
     };
   }
 
