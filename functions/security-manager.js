@@ -246,16 +246,20 @@ class SecurityManager {
    * [HASHED_CC:b7e2...], [HASHED_ID:c9d0...].
    *
    * @param {string} text - Input text containing potential PII
+   * @param {string} [tenantId] - Tenant ID for per-tenant salt (prevents cross-tenant rainbow tables)
    * @returns {Promise<string>} Text with PII replaced by HMAC tokens
    */
-  async tokenizePII(text) {
+  async tokenizePII(text, tenantId = null) {
     if (!text) return text;
     let result = text;
 
     /**
      * Produce a one-way HMAC-SHA256 hash of the given value.
-     * Normalizes the value (strips all non-alphanumeric chars) before hashing
-     * to ensure deterministic output regardless of delimiter format.
+     * Normalizes the value (strips all non-alphanumeric chars) before hashing.
+     * Prepends the tenantId as a domain-separation salt to prevent
+     * cross-tenant rainbow table attacks. Without this, an attacker
+     * who compromises one tenant's hash space can correlate PII
+     * across all tenants.
      * @param {string} value - Raw PII value
      * @param {string} type - Token type label (SSN, CC, SUBJ, ID)
      * @returns {string} Irreversible token string
@@ -263,9 +267,11 @@ class SecurityManager {
     const hmacHash = (value, type) => {
       // Normalize: strip all whitespace, dashes, dots for deterministic hash
       const normalized = value.replace(/[\s\-\.]/g, '').trim();
+      // Domain separation: tenantId prefix prevents cross-tenant correlation
+      const saltedInput = tenantId ? `${tenantId}:${normalized}` : normalized;
       const hash = crypto
         .createHmac('sha256', this.#provider._sigKey)
-        .update(normalized)
+        .update(saltedInput)
         .digest('hex');
       return `[HASHED_${type}:${hash.substring(0, 12)}]`;
     };

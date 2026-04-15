@@ -4,14 +4,12 @@
  * Consolidated truth-enforcement layer. This is the SINGLE point
  * through which all inference output passes before client delivery.
  *
- * V5.0 CHANGES:
- * ─────────────────────────────────────────────────────────
- *   - Migrated from a thin wrapper to a full controller.
- *   - DLL procedural rules, Zod schema validation, and
- *     SecurityManager PII tokenization are ALL orchestrated here.
- *   - SecurityManager is injected via constructor (dependency
- *     injection) to avoid circular dependencies and guarantee
- *     the instance is the same one initialized at boot.
+ * V5.0 DESIGN RULE:
+ *   If Zod validation fails after recursive retry, the data is
+ *   STRUCTURALLY UNVERIFIABLE. The controller MUST NOT serve it.
+ *   Returning a typed 422 is the correct failure mode — not a
+ *   generic 500, and not "graceful degradation" that shifts
+ *   validation burden to the frontend.
  *
  * Pipeline: DLL Rules → Zod Validation → PII Tokenization
  * ═══════════════════════════════════════════════════════════
@@ -19,6 +17,24 @@
 
 const { dllInterceptor } = require('./dll');
 const { validateInferenceResponse } = require('./schemas');
+
+/**
+ * Typed error for Zod validation failures in the truth audit.
+ * Caught by the handler to return HTTP 422 Unprocessable Entity.
+ */
+class TruthAuditError extends Error {
+  /**
+   * @param {string[]} failedModules - Schema modules that failed validation
+   * @param {object} errors - Raw Zod error details
+   */
+  constructor(failedModules, errors) {
+    super(`Schema validation failed for modules: ${failedModules.join(', ')}`);
+    this.name = 'TruthAuditError';
+    this.failedModules = failedModules;
+    this.errors = errors;
+    this.httpStatus = 422;
+  }
+}
 
 class IntegrityController {
   /** @type {import('./security-manager').SecurityManager} */
@@ -60,16 +76,17 @@ class IntegrityController {
    *   2. Zod schema validation (final enforcement gate)
    *   3. SecurityManager.tokenizePII() sweep on all narrative fields
    *
-   * This is the LAST gate before data leaves the engine. If Zod fails here,
-   * it means the recursive retry also failed — hard crash.
+   * This is the LAST gate before data leaves the engine.
+   * If Zod fails here, the data is REJECTED — never served.
    *
    * @param {object} dataObject - Parsed inference response from Gemini
+   * @param {string} [tenantId] - Tenant ID for per-tenant PII salt
    * @param {object} [context] - Optional request context for future DLL post-rules
    * @param {import('./security-manager').SecurityManager} [securityManagerOverride] - Optional SM override for testing
    * @returns {Promise<object>} Audited, PII-scrubbed response
-   * @throws {Error} TRUTH_AUDIT_FAILURE if Zod validation fails
+   * @throws {TruthAuditError} If Zod validation fails — NEVER serves unverified data
    */
-  async finalTruthAudit(dataObject, context = null, securityManagerOverride = null) {
+  async finalTruthAudit(dataObject, tenantId = null, context = null, securityManagerOverride = null) {
     const sm = securityManagerOverride || this.#securityManager;
 
     // ── Step 1: Procedural DLL post-processing (future expansion point) ──
@@ -77,36 +94,30 @@ class IntegrityController {
     // (checkProceduralRules) handle all deterministic overrides.
 
     // ── Step 2: Zod Schema Validation (Final Safety Gate) ──
+    // If this fails, the AI produced structurally unverifiable output.
+    // NEVER serve it. Throw a typed error → handler returns 422.
     const validation = validateInferenceResponse(dataObject);
     if (!validation.valid) {
-      // V5.0 AUDIT REMEDY: Graceful degradation instead of hard crash.
-      // A Zod mismatch after retry means the AI output is structurally
-      // malformed. Throwing here causes a generic 500 — total system collapse.
-      // Instead: log the violation, set confidence to 0, and return the
-      // raw data with a degraded trust indicator. The client receives
-      // actionable data instead of an opaque error.
       console.error(
-        `[TRUTH_AUDIT_DEGRADED] Zod schema mismatch after retry completion. ` +
-        `Failed modules: ${validation.failedModules.join(', ')}. ` +
+        `[TRUTH_AUDIT_REJECTED] Zod schema failed post-retry. ` +
+        `Modules: ${validation.failedModules.join(', ')}. ` +
         `Errors: ${JSON.stringify(validation.errors)}`
       );
-      // Inject degradation marker into the data — client MUST check this field
-      dataObject.confidence = 0;
-      dataObject._truthAuditDegraded = true;
-      dataObject._failedModules = validation.failedModules;
+      throw new TruthAuditError(validation.failedModules, validation.errors);
     }
 
-    let audited = validation.result || dataObject;
+    let audited = validation.result;
 
     // ── Step 3: PII Tokenization (HMAC-SHA256, irreversible) ──
     // Sweep all narrative fields for SSN, CC, and Subject ID patterns.
+    // Uses per-tenant salt to prevent cross-tenant rainbow table attacks.
     if (audited.narrative) {
-      audited.narrative = await sm.tokenizePII(audited.narrative);
+      audited.narrative = await sm.tokenizePII(audited.narrative, tenantId);
     }
 
     if (audited.executiveAction && audited.executiveAction.narrative) {
       audited.executiveAction.narrative = await sm.tokenizePII(
-        audited.executiveAction.narrative
+        audited.executiveAction.narrative, tenantId
       );
     }
 
@@ -115,7 +126,7 @@ class IntegrityController {
       for (let i = 0; i < audited.executiveAction.recommendations.length; i++) {
         const rec = audited.executiveAction.recommendations[i];
         if (rec.action) {
-          audited.executiveAction.recommendations[i].action = await sm.tokenizePII(rec.action);
+          audited.executiveAction.recommendations[i].action = await sm.tokenizePII(rec.action, tenantId);
         }
       }
     }
@@ -124,4 +135,5 @@ class IntegrityController {
   }
 }
 
-module.exports = { IntegrityController };
+module.exports = { IntegrityController, TruthAuditError };
+

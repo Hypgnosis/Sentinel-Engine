@@ -199,6 +199,10 @@ async function launchVerificationSidecar({ genaiClient, requestId, tenantId, nar
     }
 
     await storeVerificationResult(requestId, tenantId, verdict, latencyMs);
+
+    // Return verdict so synchronous callers (HIGH_SENSITIVITY queries)
+    // can include it in the response BEFORE the HTTP 200 is sent.
+    return verdict;
   } catch (err) {
     const latencyMs = Date.now() - t0;
     // Structured log for monitoring — sidecar failures must not be silent

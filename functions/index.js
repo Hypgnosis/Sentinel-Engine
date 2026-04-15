@@ -83,7 +83,7 @@ const {
 
 // V4.5 Core
 const { getSql, postgresVectorSearch, isSubjectRevoked } = require('./db');
-const { IntegrityController } = require('./integrity-controller');
+const { IntegrityController, TruthAuditError } = require('./integrity-controller');
 
 // V4.9-RC: Fortress Modules
 const { verifyPEP, PEPError } = require('./pep-gate');
@@ -415,52 +415,54 @@ async function handleSentinelInference(req, res) {
       const queryVector = embResult.embeddings[0].values;
       trace.embedding = Date.now() - tEmbed0;
 
-      // Step 3: RAG Cascade — PARALLEL (V5.0 Audit Remedy)
-      // Postgres and BigQuery race concurrently. Postgres has an 800ms
-      // priority window. If it doesn't return in time, BigQuery results
-      // are used immediately. This prevents a single slow tier from
-      // consuming the entire 4s P95 latency budget.
+      // Step 3: RAG Cascade — FIRST-PAST-THE-POST (V5.0 Audit R2)
+      // Both Postgres and BigQuery fire concurrently. Whichever tier
+      // returns usable results FIRST wins. No magic timeouts, no
+      // artificial padding. If Postgres is slow, BigQuery serves
+      // immediately. If BigQuery is slow, Postgres serves immediately.
       const tRag0 = Date.now();
       let contextPayload, dataAuthority;
 
-      const PG_TIMEOUT_MS = 800;
-
-      // Fire both Tier 1 and Tier 2 concurrently
+      // Fire both tiers concurrently
       const pgPromise = postgresVectorSearch(queryVector, tenantId)
-        .then(res => { circuitBreaker.recordSuccess(); return res; })
-        .catch(err => { circuitBreaker.recordFailure(); console.error('[RAG_CASCADE] Postgres failed:', err.message); return null; });
+        .then(res => { circuitBreaker.recordSuccess(); return { tier: 'PG', res }; })
+        .catch(err => { circuitBreaker.recordFailure(); console.error('[RAG_CASCADE] Postgres failed:', err.message); return { tier: 'PG', res: null }; });
 
       const bqPromise = TIER_MODE === 'POSTGRES_ONLY'
-        ? Promise.resolve(null)  // Skip BQ in POSTGRES_ONLY mode
+        ? null // Skip BQ in POSTGRES_ONLY mode
         : vectorSearchRetrieval(query, genai, tenantId)
-            .catch(err => { console.error('[RAG_CASCADE] BigQuery failed:', err.message); return null; });
+            .then(res => ({ tier: 'BQ', res }))
+            .catch(err => { console.error('[RAG_CASCADE] BigQuery failed:', err.message); return { tier: 'BQ', res: null }; });
 
-      // Race: Give Postgres an 800ms head start
-      const pgTimeout = new Promise(resolve => setTimeout(() => resolve(null), PG_TIMEOUT_MS));
-      const pgResult = await Promise.race([pgPromise, pgTimeout]);
-
-      if (pgResult && pgResult.resultCount > 0) {
-        contextPayload = pgResult.contextPayload;
-        dataAuthority = 'POSTGRES_PRISTINE_RESERVOIR';
+      if (TIER_MODE === 'POSTGRES_ONLY') {
+        // Single-tier mode: await Postgres only
+        const pgResult = await pgPromise;
         trace.postgres = Date.now() - tRag0;
-        trace.bigquery = 0; // Skipped — Postgres won the race
+        if (pgResult.res && pgResult.res.resultCount > 0) {
+          contextPayload = pgResult.res.contextPayload;
+          dataAuthority = 'POSTGRES_PRISTINE_RESERVOIR';
+        } else {
+          throw new Error('POSTGRES_ONLY mode: Tier 1 returned no results. Fallback disabled.');
+        }
       } else {
-        trace.postgres = Date.now() - tRag0;
+        // FULL_CASCADE: Race both tiers — first with results wins
+        const results = await Promise.allSettled([pgPromise, bqPromise]);
+        const settled = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
 
-        // POSTGRES_ONLY enforcement
-        if (TIER_MODE === 'POSTGRES_ONLY') {
-          throw new Error('POSTGRES_ONLY mode: Tier 1 returned no results or timed out. Fallback disabled.');
-        }
+        // Sort by whoever returned results (Postgres has priority on ties)
+        const pgSettled = settled.find(s => s.tier === 'PG');
+        const bqSettled = settled.find(s => s.tier === 'BQ');
 
-        // Fall through to BigQuery (already in-flight)
-        const tBq0 = Date.now();
-        const bqResult = await bqPromise;
-        if (bqResult && bqResult.resultCount > 0) {
-          contextPayload = bqResult.contextPayload;
+        if (pgSettled?.res?.resultCount > 0) {
+          contextPayload = pgSettled.res.contextPayload;
+          dataAuthority = 'POSTGRES_PRISTINE_RESERVOIR';
+        } else if (bqSettled?.res?.resultCount > 0) {
+          contextPayload = bqSettled.res.contextPayload;
           dataAuthority = 'GCP_BIGQUERY_VECTOR_RAG';
-          if (bqResult.bqErrors) trace.bqErrors = bqResult.bqErrors;
+          if (bqSettled.res.bqErrors) trace.bqErrors = bqSettled.res.bqErrors;
         }
-        trace.bigquery = Date.now() - tBq0;
+        trace.postgres = Date.now() - tRag0;
+        trace.bigquery = Date.now() - tRag0; // Both ran concurrently
       }
 
       // C: Firestore (Tier 3 — Legacy Fallback, only if both tiers returned nothing)
@@ -595,7 +597,8 @@ async function handleSentinelInference(req, res) {
       }
 
       // ═══ PHASE 5: UNIFIED TRUTH AUDIT (Zod + Data Sovereignty) ═══
-      data = await integrityCtrl.finalTruthAudit(data);
+      // tenantId passed for per-tenant PII salt (prevents rainbow tables)
+      data = await integrityCtrl.finalTruthAudit(data, tenantId);
 
       return {
         data,
@@ -660,16 +663,36 @@ async function handleSentinelInference(req, res) {
       data.narrative = RESILIENCE_ADVISORY + data.narrative;
     }
 
-    // ═══ PHASE 3: Launch Verification Sidecar (fire-and-forget) ═══
+    // ═══ PHASE 3: Verification Sidecar ═══
+    // HIGH_SENSITIVITY queries: sidecar is AWAITED — user must not
+    // receive unverified intelligence when the cost of error is high.
+    // Normal queries: fire-and-forget (async background verification).
+    const isHighSensitivity = /\b(compliance|regulatory|legal|audit|financial|contract|penalty|liability|sanction)\b/i.test(query);
+    let verificationResult = null;
+
     if (contextPayload && data.narrative) {
-      // DO NOT await — this is async background verification
-      launchVerificationSidecar({
+      const sidecarPayload = {
         genaiClient: getAI(),
         requestId,
         tenantId,
         narrative: data.narrative,
         sourceContext: contextPayload,
-      }).catch(err => console.error('[VERIFICATION_SIDECAR] Background error:', err.message));
+      };
+
+      if (isHighSensitivity) {
+        // SYNCHRONOUS: Block response until verification completes
+        try {
+          verificationResult = await launchVerificationSidecar(sidecarPayload);
+          trace.verification = Date.now() - t0;
+        } catch (err) {
+          console.error('[VERIFICATION_SIDECAR] Sync verification failed:', err.message);
+          verificationResult = { isVerified: null, error: err.message };
+        }
+      } else {
+        // ASYNC: Fire-and-forget for normal queries
+        launchVerificationSidecar(sidecarPayload)
+          .catch(err => console.error('[VERIFICATION_SIDECAR] Background error:', err.message));
+      }
     }
 
     trace.total = Date.now() - t0;
@@ -683,15 +706,33 @@ async function handleSentinelInference(req, res) {
       latencyTrace: trace,
       requestId,
       // V5.0 Sovereign Fortress metadata
-      verificationStatus: 'pending',
+      verificationStatus: isHighSensitivity
+        ? (verificationResult?.isVerified === false ? 'HALLUCINATION_FLAGGED' : (verificationResult?.isVerified ? 'verified' : 'verification_failed'))
+        : 'pending',
+      verificationResult: isHighSensitivity ? verificationResult : undefined,
       isResilienceMode,
       cacheStatus: swrResult.cacheStatus,
       authMethod: ctx.authMethod,
     });
 
   } catch (err) {
-    console.error(`[CRITICAL] Inference failed:`, err);
     trace.total = Date.now() - t0;
+
+    // TruthAuditError: Zod validation failed — return typed 422, not generic 500
+    if (err instanceof TruthAuditError) {
+      console.error(`[TRUTH_AUDIT_REJECTED] ${err.message}`);
+      return res.status(422).json({
+        status: 'TRUTH_AUDIT_FAILURE',
+        error: 'SCHEMA_VALIDATION_FAILED',
+        message: 'The AI produced structurally unverifiable output. The Integrity Controller has rejected this response.',
+        failedModules: err.failedModules,
+        latencyTrace: trace,
+        requestId,
+        isResilienceMode: circuitBreaker.isOpen(),
+      });
+    }
+
+    console.error(`[CRITICAL] Inference failed:`, err);
     return res.status(500).json({
       error: 'Infrastructure Failure',
       detail: err.message,
