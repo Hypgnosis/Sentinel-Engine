@@ -225,6 +225,12 @@ async function getCached(tenantId, query) {
 
     console.log(`[SWR_CACHE] HIT key=${key} age=${Math.round(age / 1000)}s ttl=${ttl}s stale=${isStale}`);
 
+    if (isStale && module.exports.circuitBreaker && module.exports.circuitBreaker.isOpen()) {
+      if (cached.data && cached.data.narrative) {
+        cached.data.narrative += "\n\n**ADVISORY: Serving cached intelligence. Live verification currently unavailable due to reservoir connectivity.**";
+      }
+    }
+
     return {
       data: cached.data,
       meta: {

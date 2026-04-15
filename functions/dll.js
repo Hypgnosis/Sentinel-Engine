@@ -53,50 +53,6 @@ function extractMinMargin(context) {
   return Math.min(...margins);
 }
 
-/**
- * PII Tokenization — HMAC-SHA256 Deterministic Hashing
- *
- * Replaces PII patterns with cryptographically irreversible tokens.
- * Tokens are deterministic: the same PII value always produces the same
- * token within a session, enabling correlation without re-identification.
- *
- * Token format: [TYPE:HMAC_PREFIX_12] — e.g. [SSN:a3f9c2d14b8e]
- *
- * @param {string} text - Input text that may contain PII
- * @returns {string} Text with PII replaced by HMAC tokens
- */
-const crypto = require('crypto');
-
-function tokenizePII(text) {
-  const tokenKey = process.env.SENTINEL_SIGNING_KEY || 'sentinel-pii-token-key-v49';
-
-  function hmacToken(value, type) {
-    const hash = crypto.createHmac('sha256', tokenKey)
-      .update(value.trim())
-      .digest('hex')
-      .substring(0, 12);
-    return `[${type}:${hash}]`;
-  }
-
-  // SSN: 123-45-6789
-  let result = text.replace(/\d{3}-\d{2}-\d{4}/g, (match) => hmacToken(match, 'SSN'));
-
-  // Credit card: 1234-5678-9012-3456
-  result = result.replace(/\d{4}-\d{4}-\d{4}-\d{4}/g, (match) => hmacToken(match, 'CC'));
-
-  // Patient ID: patient_id: ABC123
-  result = result.replace(/patient_id:\s*([a-zA-Z0-9]+)/gi, (match, id) => {
-    return `patient_id: ${hmacToken(id, 'SUBJ')}`;
-  });
-
-  return result;
-}
-
-// Legacy alias — preserved for callers using redactPII
-const redactPII = tokenizePII;
-
 module.exports = {
-  dllInterceptor,
-  tokenizePII,
-  redactPII,
+  dllInterceptor
 };

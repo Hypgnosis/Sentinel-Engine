@@ -26,6 +26,13 @@ const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const textToSpeech = require('@google-cloud/text-to-speech');
 const admin = require('firebase-admin');
 
+// ─────────────────────────────────────────────────────
+//  HARD BOOT LOCK (SECURITY MANDATE)
+// ─────────────────────────────────────────────────────
+if (!process.env.DB_PASSWORD || !process.env.SENTINEL_ENCRYPTION_KEY || !process.env.SENTINEL_SIGNING_KEY) {
+  throw new Error("FATAL_BOOT_FAILURE: Essential security keys missing from environment. Container halted.");
+}
+
 const {
   loadInstanceConfig,
   getTableConfigs,
@@ -36,7 +43,7 @@ const {
 
 // V4.5 Core
 const { getSql, postgresVectorSearch, isSubjectRevoked } = require('./db');
-const { dllInterceptor } = require('./dll');
+const { IntegrityController } = require('./integrity-controller');
 
 // V4.9-RC: New Fortress Modules
 const { verifyPEP, PEPError } = require('./pep-gate');
@@ -408,8 +415,9 @@ async function handleSentinelInference(req, res) {
         };
       }
 
-      // Step 5: DLL Intercept Check
-      const dllOverride = dllInterceptor(query, contextPayload);
+      // Step 5: Procedural Rules Intercept Verification (Integrity Controller)
+      const integrityCtrl = new IntegrityController(getSecurityManager());
+      const dllOverride = integrityCtrl.checkProceduralRules(query, contextPayload);
       if (dllOverride) {
         return {
           _dllOverride: true,
@@ -508,9 +516,8 @@ async function handleSentinelInference(req, res) {
         data.metrics = [];
       }
 
-      // ═══ PHASE 5: PII Tokenization via SecurityManager ═══
-      const secMgr = getSecurityManager();
-      data.narrative = await secMgr.tokenizePII(data.narrative);
+      // ═══ PHASE 5: UNIFIED TRUTH AUDIT (Zod + Data Sovereignty) ═══
+      data = await integrityCtrl.finalTruthAudit(data);
 
       return {
         data,

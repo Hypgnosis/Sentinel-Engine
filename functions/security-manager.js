@@ -205,6 +205,55 @@ class SecurityManager {
   }
 
   /**
+   * PII Tokenization — HMAC-SHA256 Deterministic Hashing
+   * @param {string} text
+   * @returns {Promise<string>}
+   */
+  async tokenizePII(text) {
+    if (!text) return text;
+    let result = text;
+
+    const generateToken = async (value, type) => {
+      const hashHex = await this.#provider.sign(Buffer.from(value.trim(), 'utf8'));
+      return `[${type}:${hashHex.substring(0, 12)}]`;
+    };
+
+    const runAsyncReplace = async (str, regex, type) => {
+      let match;
+      const matches = [];
+      const expr = new RegExp(regex.source, regex.flags);
+      while ((match = expr.exec(str)) !== null) {
+         matches.push(match);
+      }
+      for (const m of matches) {
+         const token = await generateToken(m[1] || m[0], type);
+         str = str.replace(m[0], type === 'SUBJ' ? `patient_id: ${token}` : token);
+      }
+      return str;
+    };
+
+    // SSN: 123-45-6789
+    result = await runAsyncReplace(result, /\d{3}-\d{2}-\d{4}/g, 'SSN');
+    // Credit card: 1234-5678-9012-3456
+    result = await runAsyncReplace(result, /\d{4}-\d{4}-\d{4}-\d{4}/g, 'CC');
+    // Patient ID: patient_id: ABC123
+    result = await runAsyncReplace(result, /patient_id:\s*([a-zA-Z0-9]+)/gi, 'SUBJ');
+
+    return result;
+  }
+}
+
+module.exports = {
+  SecurityManager,
+  SoftwareKmsProvider,
+  HardwareHsmProvider,
+};
+  async signPayload(payload) {
+    const data = Buffer.from(JSON.stringify(payload), 'utf8');
+    return this.#provider.sign(data);
+  }
+
+  /**
    * Verify a JSON payload against a signature.
    * @param {object} payload
    * @param {string} signature
