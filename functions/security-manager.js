@@ -64,8 +64,12 @@ class SoftwareKmsProvider {
       throw new Error('SoftwareKmsProvider: signingKey must be at least 16 characters.');
     }
 
-    // Derive a 32-byte key from the provided key material
-    this._encKey = crypto.createHash('sha256').update(encryptionKey).digest();
+    // Derive a 32-byte key using HKDF (HMAC-based Key Derivation Function)
+    // for proper entropy expansion. Raw SHA-256 of a text string reduces
+    // cryptographic strength to the entropy of the input.
+    // HKDF domain-separation salt prevents cross-application key reuse.
+    const HKDF_SALT = Buffer.from('sentinel-engine-v50-sovereign', 'utf8');
+    this._encKey = crypto.hkdfSync('sha256', encryptionKey, HKDF_SALT, 'aes-256-gcm-encryption', 32);
     this._sigKey = signingKey;
     this._keyId = keyId;
     this._algorithm = 'aes-256-gcm';
@@ -250,32 +254,52 @@ class SecurityManager {
 
     /**
      * Produce a one-way HMAC-SHA256 hash of the given value.
-     * Uses the signing key from the provider (injected via Secret Manager).
+     * Normalizes the value (strips all non-alphanumeric chars) before hashing
+     * to ensure deterministic output regardless of delimiter format.
      * @param {string} value - Raw PII value
-     * @param {string} type - Token type label (SSN, CC, SUBJ)
+     * @param {string} type - Token type label (SSN, CC, SUBJ, ID)
      * @returns {string} Irreversible token string
      */
     const hmacHash = (value, type) => {
+      // Normalize: strip all whitespace, dashes, dots for deterministic hash
+      const normalized = value.replace(/[\s\-\.]/g, '').trim();
       const hash = crypto
         .createHmac('sha256', this.#provider._sigKey)
-        .update(value.trim())
+        .update(normalized)
         .digest('hex');
       return `[HASHED_${type}:${hash.substring(0, 12)}]`;
     };
 
-    // SSN: 123-45-6789 — one-way hash
-    const ssnMatches = result.match(/\d{3}-\d{2}-\d{4}/g) || [];
-    for (const ssn of ssnMatches) {
-      result = result.replace(ssn, hmacHash(ssn, 'SSN'));
+    // ── SSN: Multi-format detection ──
+    // Matches: 123-45-6789, 123 45 6789, 123.45.6789, 123456789
+    const SSN_PATTERNS = [
+      /\d{3}-\d{2}-\d{4}/g,           // dash-delimited
+      /\d{3}\s\d{2}\s\d{4}/g,         // space-delimited
+      /\d{3}\.\d{2}\.\d{4}/g,         // dot-delimited
+      /(?<!\d)\d{9}(?!\d)/g,          // contiguous 9-digit (with boundary guards)
+    ];
+    for (const pattern of SSN_PATTERNS) {
+      const matches = result.match(pattern) || [];
+      for (const ssn of matches) {
+        result = result.replace(ssn, hmacHash(ssn, 'SSN'));
+      }
     }
 
-    // Credit card: 1234-5678-9012-3456 — one-way hash
-    const ccMatches = result.match(/\d{4}-\d{4}-\d{4}-\d{4}/g) || [];
-    for (const cc of ccMatches) {
-      result = result.replace(cc, hmacHash(cc, 'CC'));
+    // ── Credit Card: Multi-format detection ──
+    // Matches: 1234-5678-9012-3456, 1234 5678 9012 3456, 1234567890123456
+    const CC_PATTERNS = [
+      /\d{4}-\d{4}-\d{4}-\d{4}/g,     // dash-delimited
+      /\d{4}\s\d{4}\s\d{4}\s\d{4}/g,  // space-delimited
+      /(?<!\d)\d{16}(?!\d)/g,          // contiguous 16-digit (with boundary guards)
+    ];
+    for (const pattern of CC_PATTERNS) {
+      const matches = result.match(pattern) || [];
+      for (const cc of matches) {
+        result = result.replace(cc, hmacHash(cc, 'CC'));
+      }
     }
 
-    // Subject/Patient ID: patient_id: ABC123 — one-way hash
+    // ── Subject/Patient ID: patient_id: ABC123 ──
     const pidMatches = result.match(/patient_id:\s*([a-zA-Z0-9]+)/gi) || [];
     for (const pid of pidMatches) {
       const idValue = pid.match(/patient_id:\s*([a-zA-Z0-9]+)/i);
@@ -284,7 +308,7 @@ class SecurityManager {
       }
     }
 
-    // Subject ID fields in JSON: "subject_id": "VALUE" — one-way hash
+    // ── Subject ID fields in JSON: "subject_id": "VALUE" ──
     const subjMatches = result.match(/"subject_id":\s*"([^"]+)"/g) || [];
     for (const subj of subjMatches) {
       const idMatch = subj.match(/"subject_id":\s*"([^"]+)"/);

@@ -176,22 +176,58 @@ async function launchVerificationSidecar({ genaiClient, requestId, tenantId, nar
     const latencyMs = Date.now() - t0;
     console.log(`[VERIFICATION_LOOP] Prosecutor completed in ${latencyMs}ms. Verified: ${verdict.isVerified}`);
 
+    // ═══ V5.0 AUDIT REMEDY: Close the Loop ═══
+    // If the Prosecutor finds hallucinations, emit a structured log
+    // that triggers a Cloud Monitoring alert. The user may have already
+    // received the response — this creates the audit trail.
+    if (verdict.isVerified === false) {
+      console.error(JSON.stringify({
+        severity: 'CRITICAL',
+        eventType: 'HALLUCINATION_DETECTED',
+        requestId,
+        tenantId,
+        discrepancyCount: verdict.discrepancies?.length || 0,
+        discrepancies: verdict.discrepancies,
+        verificationNotes: verdict.verificationNotes,
+        latencyMs,
+        message: `[HALLUCINATION_DETECTED] Prosecutor flagged ${verdict.discrepancies?.length || 0} discrepancy(ies) for request ${requestId}. Audit trail recorded.`,
+      }));
+    }
+
     if (verdict.discrepancies && verdict.discrepancies.length > 0) {
-      console.warn(`[VERIFICATION_LOOP] ${verdict.discrepancies.length} discrepancy(ies) found for ${requestId}:`);
       verdict.discrepancies.forEach((d, i) => console.warn(`  [${i + 1}] ${d}`));
     }
 
     await storeVerificationResult(requestId, tenantId, verdict, latencyMs);
   } catch (err) {
     const latencyMs = Date.now() - t0;
-    console.error(`[VERIFICATION_LOOP] Prosecutor FAILED for ${requestId} after ${latencyMs}ms:`, err.message);
+    // Structured log for monitoring — sidecar failures must not be silent
+    console.error(JSON.stringify({
+      severity: 'ERROR',
+      eventType: 'VERIFICATION_SIDECAR_FAILURE',
+      requestId,
+      tenantId,
+      error: err.message,
+      latencyMs,
+      message: `[VERIFICATION_SIDECAR_FAILURE] Prosecutor failed for ${requestId} after ${latencyMs}ms: ${err.message}`,
+    }));
 
     // Store failure result so polling knows it completed (with error)
     await storeVerificationResult(requestId, tenantId, {
       isVerified: null,
       discrepancies: [`VERIFICATION_ERROR: ${err.message}`],
       verificationNotes: 'Sidecar execution failed.',
-    }, latencyMs);
+    }, latencyMs).catch(storeErr => {
+      // DB is also down — emit structured log for this too
+      console.error(JSON.stringify({
+        severity: 'CRITICAL',
+        eventType: 'VERIFICATION_STORE_FAILURE',
+        requestId,
+        tenantId,
+        error: storeErr.message,
+        message: `[VERIFICATION_STORE_FAILURE] Could not persist verification failure for ${requestId}. Audit trail is BROKEN.`,
+      }));
+    });
   }
 }
 

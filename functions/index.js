@@ -395,28 +395,9 @@ async function handleSentinelInference(req, res) {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Empty Query', requestId });
 
-    // Step 1: Database URL (fetch from Secret Manager if not yet in env)
-    const tSecrets0 = Date.now();
-    if (!process.env.DATABASE_URL) {
-      const dbUrl = await getSecret('DATABASE_URL');
-      if (dbUrl) process.env.DATABASE_URL = dbUrl;
-    }
-
-    // BOOT LOCK: Refuse to run without a verified data source
-    if (!process.env.DATABASE_URL) {
-      trace.secrets = Date.now() - tSecrets0;
-      console.error('[FATAL_BOOT_FAILURE] DATABASE_URL is not available via Secret Manager. Engine cannot run.');
-      return res.status(503).json({
-        status: 'FATAL_BOOT_FAILURE',
-        error: 'DATABASE_URL_MISSING',
-        message: 'The database connection URL could not be fetched from GCP Secret Manager. ' +
-                 'The engine will not run with mock or simulated data. ' +
-                 'Verify the secret exists in project and that the service account has secretAccessor role.',
-        requestId,
-        latencyTrace: trace,
-      });
-    }
-    trace.secrets = Date.now() - tSecrets0;
+    // DATABASE_URL/DB_PASSWORD: Validated at BOOT (global scope, lines 45-56).
+    // db.js constructs the connection string from DB_PASSWORD directly.
+    // No Secret Manager fetch needed here — that was a reactive anti-pattern.
 
     // ═══ PHASE 4: SWR Cache Check ═══
     // Wrap the entire RAG → Inference pipeline in SWR
@@ -434,42 +415,55 @@ async function handleSentinelInference(req, res) {
       const queryVector = embResult.embeddings[0].values;
       trace.embedding = Date.now() - tEmbed0;
 
-      // Step 3: RAG Cascade (controlled by SENTINEL_TIER_MODE)
+      // Step 3: RAG Cascade — PARALLEL (V5.0 Audit Remedy)
+      // Postgres and BigQuery race concurrently. Postgres has an 800ms
+      // priority window. If it doesn't return in time, BigQuery results
+      // are used immediately. This prevents a single slow tier from
+      // consuming the entire 4s P95 latency budget.
       const tRag0 = Date.now();
       let contextPayload, dataAuthority;
 
-      // A: Postgres (Tier 1 — Pristine Reservoir)
-      try {
-        const pgRes = await postgresVectorSearch(queryVector, tenantId);
-        if (pgRes.resultCount > 0) {
-          contextPayload = pgRes.contextPayload;
-          dataAuthority = 'POSTGRES_PRISTINE_RESERVOIR';
+      const PG_TIMEOUT_MS = 800;
+
+      // Fire both Tier 1 and Tier 2 concurrently
+      const pgPromise = postgresVectorSearch(queryVector, tenantId)
+        .then(res => { circuitBreaker.recordSuccess(); return res; })
+        .catch(err => { circuitBreaker.recordFailure(); console.error('[RAG_CASCADE] Postgres failed:', err.message); return null; });
+
+      const bqPromise = TIER_MODE === 'POSTGRES_ONLY'
+        ? Promise.resolve(null)  // Skip BQ in POSTGRES_ONLY mode
+        : vectorSearchRetrieval(query, genai, tenantId)
+            .catch(err => { console.error('[RAG_CASCADE] BigQuery failed:', err.message); return null; });
+
+      // Race: Give Postgres an 800ms head start
+      const pgTimeout = new Promise(resolve => setTimeout(() => resolve(null), PG_TIMEOUT_MS));
+      const pgResult = await Promise.race([pgPromise, pgTimeout]);
+
+      if (pgResult && pgResult.resultCount > 0) {
+        contextPayload = pgResult.contextPayload;
+        dataAuthority = 'POSTGRES_PRISTINE_RESERVOIR';
+        trace.postgres = Date.now() - tRag0;
+        trace.bigquery = 0; // Skipped — Postgres won the race
+      } else {
+        trace.postgres = Date.now() - tRag0;
+
+        // POSTGRES_ONLY enforcement
+        if (TIER_MODE === 'POSTGRES_ONLY') {
+          throw new Error('POSTGRES_ONLY mode: Tier 1 returned no results or timed out. Fallback disabled.');
         }
-        circuitBreaker.recordSuccess();
-      } catch (pgErr) {
-        circuitBreaker.recordFailure();
-        console.error('[RAG_CASCADE] Postgres failed:', pgErr.message);
-      }
-      trace.postgres = Date.now() - tRag0;
 
-      // If POSTGRES_ONLY mode, skip fallbacks
-      if (TIER_MODE === 'POSTGRES_ONLY' && !contextPayload) {
-        throw new Error('POSTGRES_ONLY mode: Tier 1 returned no results. Fallback disabled.');
-      }
-
-      // B: BigQuery (Tier 2 — Data Moat)
-      const tBq0 = Date.now();
-      if (!contextPayload) {
-        const bqRes = await vectorSearchRetrieval(query, genai, tenantId);
-        if (bqRes.resultCount > 0) {
-          contextPayload = bqRes.contextPayload;
+        // Fall through to BigQuery (already in-flight)
+        const tBq0 = Date.now();
+        const bqResult = await bqPromise;
+        if (bqResult && bqResult.resultCount > 0) {
+          contextPayload = bqResult.contextPayload;
           dataAuthority = 'GCP_BIGQUERY_VECTOR_RAG';
+          if (bqResult.bqErrors) trace.bqErrors = bqResult.bqErrors;
         }
-        if (bqRes.bqErrors) trace.bqErrors = bqRes.bqErrors;
+        trace.bigquery = Date.now() - tBq0;
       }
-      trace.bigquery = Date.now() - tBq0;
 
-      // C: Firestore (Tier 3 — Legacy Fallback)
+      // C: Firestore (Tier 3 — Legacy Fallback, only if both tiers returned nothing)
       const tFs0 = Date.now();
       if (!contextPayload) {
         const fsRes = await firestoreLegacyRetrieval(tenantId);

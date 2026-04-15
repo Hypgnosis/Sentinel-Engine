@@ -79,14 +79,24 @@ class IntegrityController {
     // ── Step 2: Zod Schema Validation (Final Safety Gate) ──
     const validation = validateInferenceResponse(dataObject);
     if (!validation.valid) {
-      throw new Error(
-        `[TRUTH_AUDIT_FAILURE] Zod schema mismatch after retry completion. ` +
+      // V5.0 AUDIT REMEDY: Graceful degradation instead of hard crash.
+      // A Zod mismatch after retry means the AI output is structurally
+      // malformed. Throwing here causes a generic 500 — total system collapse.
+      // Instead: log the violation, set confidence to 0, and return the
+      // raw data with a degraded trust indicator. The client receives
+      // actionable data instead of an opaque error.
+      console.error(
+        `[TRUTH_AUDIT_DEGRADED] Zod schema mismatch after retry completion. ` +
         `Failed modules: ${validation.failedModules.join(', ')}. ` +
         `Errors: ${JSON.stringify(validation.errors)}`
       );
+      // Inject degradation marker into the data — client MUST check this field
+      dataObject.confidence = 0;
+      dataObject._truthAuditDegraded = true;
+      dataObject._failedModules = validation.failedModules;
     }
 
-    let audited = validation.result;
+    let audited = validation.result || dataObject;
 
     // ── Step 3: PII Tokenization (HMAC-SHA256, irreversible) ──
     // Sweep all narrative fields for SSN, CC, and Subject ID patterns.
