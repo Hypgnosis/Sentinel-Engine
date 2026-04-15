@@ -257,12 +257,13 @@ class SecurityManager {
      * Produce a one-way HMAC-SHA256 hash of the given value.
      * Normalizes the value (strips all non-alphanumeric chars) before hashing.
      *
-     * V5.1 CRYPTOGRAPHIC HARDENING:
-     * Uses HKDF to derive a 32-byte per-tenant HMAC key from the global
-     * signing key + tenantId. This is fundamentally stronger than prepending
-     * a plaintext tenantId: the HMAC key itself is tenant-specific, so
-     * an attacker who compromises one tenant's key material cannot use it
-     * to verify or brute-force another tenant's hashes.
+     * V5.2 BANK-GRADE ANONYMIZATION:
+     * HKDF(digest='sha256', salt=SYSTEM_PEPPER, info=tenantId)
+     *
+     * SYSTEM_PEPPER is a high-entropy secret validated at boot. Using it
+     * as the HKDF salt means PII tokens are mathematically unreachable
+     * even if a tenantId is compromised — the attacker would also need
+     * the SYSTEM_PEPPER, which never leaves Secret Manager.
      *
      * @param {string} value - Raw PII value
      * @param {string} type - Token type label (SSN, CC, SUBJ, ID)
@@ -272,13 +273,15 @@ class SecurityManager {
       const normalized = value.replace(/[\s\-\.]/g, '').trim();
 
       // Derive a per-tenant HMAC key via HKDF (32 bytes)
-      // IKM: global signing key, Salt: static domain, Info: tenantId
-      const HKDF_PII_SALT = Buffer.from('sentinel-pii-tokenization-v51', 'utf8');
+      // IKM: global signing key
+      // Salt: SYSTEM_PEPPER (high-entropy, boot-validated)
+      // Info: tenantId (domain separation per tenant)
+      const pepper = process.env.SYSTEM_PEPPER;
       const tenantInfo = tenantId || 'global';
       const derivedKey = crypto.hkdfSync(
         'sha256',
         this.#provider._sigKey,
-        HKDF_PII_SALT,
+        Buffer.from(pepper, 'utf8'),
         tenantInfo,
         32
       );

@@ -1,20 +1,20 @@
 /**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.1 "SOVEREIGN ABSOLUTE")
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.2 "SOVEREIGN ABSOLUTE")
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20) — Gen2
  *
- * V5.1 CHANGES (Sovereign Absolute Build):
+ * V5.2 CHANGES (Regulated Sector Hardening):
  * ─────────────────────────────────────────
- * 1 — Configuration Monism: DATABASE_URL is the SOLE DB config.
- * 2 — raceToData: Result-aware RAG racing. Empty results ignored.
- * 3 — Shadow Classifier: LLM-based sensitivity classification
- *      replaces brittle regex. SENSITIVE → sync verification.
- * 4 — Fail-Fast Integrity: TruthAuditError → 422, zero garbage.
- * 5 — Per-tenant HKDF PII salt: Cross-tenant correlation impossible.
- * 6 — Terraform-native IAM: provision-iam.sh deprecated.
+ * 1 — Pessimistic Classification: Shadow Classifier FAILS CLOSED.
+ *     Timeout/error/ambiguity → SENSITIVE → mandatory sync audit.
+ * 2 — Pristine Priority Racing: 150ms window favors Postgres.
+ *     Prevents stale BigQuery cache from winning by milliseconds.
+ * 3 — SYSTEM_PEPPER: High-entropy boot secret for HKDF derivation.
+ *     PII tokens are unreachable even if tenantId is compromised.
+ * 4 — Configuration Monism: DATABASE_URL only. No fallback chains.
  *
  * Constraints:
- *   - Sub-4s P95 latency target
+ *   - Truth over Speed (P99 may increase for SENSITIVE queries)
  *   - Correctness over Latency
  *   - Zod-enforced schema compliance
  *   - Zero hardcoded secrets or connection strings
@@ -43,6 +43,7 @@ const REQUIRED_SECRETS = {
   DATABASE_URL: process.env.DATABASE_URL,
   SENTINEL_ENCRYPTION_KEY: process.env.SENTINEL_ENCRYPTION_KEY,
   SENTINEL_SIGNING_KEY: process.env.SENTINEL_SIGNING_KEY,
+  SYSTEM_PEPPER: process.env.SYSTEM_PEPPER,
 };
 
 for (const [name, value] of Object.entries(REQUIRED_SECRETS)) {
@@ -346,57 +347,106 @@ function selectModel(query, instanceConfig) {
 }
 
 // ─────────────────────────────────────────────────────
-//  raceToData — Result-Aware RAG Racing (V5.1)
+//  PRISTINE PRIORITY RACING — V5.2 "Pristine Window"
 // ─────────────────────────────────────────────────────
 
+const PRISTINE_WINDOW_MS = 150;
+
 /**
- * Races multiple tier promises. Returns the FIRST promise whose result
- * contains non-zero data (resultCount > 0). Empty results are ignored.
- * If ALL tiers settle with zero results, rejects.
+ * Priority-aware RAG race with a 150ms "Pristine Window."
  *
- * This prevents the catastrophic case where BigQuery returns [] in 200ms
- * and the engine hallucinates from empty context while Postgres had
- * data-rich results at 400ms.
+ * 1. Fire Postgres (Tier 1) and BigQuery (Tier 2) concurrently.
+ * 2. If Postgres returns data within 150ms, resolve immediately
+ *    and discard the BigQuery race. This prevents a "Fast Stale Win"
+ *    where a BigQuery cache beats fresh Postgres by milliseconds.
+ * 3. If the 150ms window expires, resolve with the first available
+ *    result from ANY tier that contains data.
+ * 4. If all tiers settle with no results, reject with ALL_TIERS_EMPTY.
  *
- * @param {Array<Promise<{tier: string, res: object|null}>>} tierPromises
- * @returns {Promise<{tier: string, res: object}>} First tier with data
+ * @param {Promise<{tier: string, res: object|null}>} pgPromise
+ * @param {Promise<{tier: string, res: object|null}>} bqPromise
+ * @returns {Promise<{tier: string, res: object}>}
  * @throws {Error} If all tiers settle with no results
  */
-function raceToData(tierPromises) {
+function pristineRace(pgPromise, bqPromise) {
   return new Promise((resolve, reject) => {
-    let settled = 0;
-    const total = tierPromises.length;
+    let resolved = false;
+    let pgSettled = false;
+    let bqSettled = false;
+    let pgResult = null;
+    let bqResult = null;
 
-    for (const promise of tierPromises) {
-      promise.then(result => {
-        if (result && result.res && result.res.resultCount > 0) {
-          resolve(result); // First with data wins
-        } else {
-          settled++;
-          if (settled === total) reject(new Error('ALL_TIERS_EMPTY'));
-        }
+    const tryResolve = () => {
+      if (resolved) return;
+      // Check if either has data
+      if (pgResult && pgResult.res && pgResult.res.resultCount > 0) {
+        resolved = true;
+        resolve(pgResult);
+        return;
+      }
+      if (bqResult && bqResult.res && bqResult.res.resultCount > 0) {
+        resolved = true;
+        resolve(bqResult);
+        return;
+      }
+      // Both settled with no data
+      if (pgSettled && bqSettled) {
+        reject(new Error('ALL_TIERS_EMPTY'));
+      }
+    };
+
+    // Phase 1: Pristine Window — give Postgres 150ms of priority
+    pgPromise.then(result => {
+      pgSettled = true;
+      pgResult = result;
+      if (result && result.res && result.res.resultCount > 0) {
+        // Postgres has data — resolve immediately, skip BQ
+        if (!resolved) { resolved = true; resolve(result); }
+      } else {
+        tryResolve();
+      }
+    }).catch(() => {
+      pgSettled = true;
+      tryResolve();
+    });
+
+    // Phase 2: BigQuery — only accepted after the Pristine Window
+    // or if Postgres failed/returned empty.
+    setTimeout(() => {
+      bqPromise.then(result => {
+        bqSettled = true;
+        bqResult = result;
+        tryResolve();
       }).catch(() => {
-        settled++;
-        if (settled === total) reject(new Error('ALL_TIERS_EMPTY'));
+        bqSettled = true;
+        tryResolve();
       });
-    }
+    }, PRISTINE_WINDOW_MS);
+
+    // Safety net: if Postgres is extremely slow AND BQ settles
+    // before the window opens, we still need to accept BQ data.
+    // The setTimeout above just DELAYS evaluation of BQ results,
+    // not BQ execution (which was fired concurrently already).
   });
 }
 
 // ─────────────────────────────────────────────────────
-//  SHADOW CLASSIFIER — LLM-based Sensitivity Gate (V5.1)
+//  SHADOW CLASSIFIER — Pessimistic Sensitivity Gate (V5.2)
 // ─────────────────────────────────────────────────────
 
 const SHADOW_CLASSIFIER_MODEL = 'gemini-2.0-flash-lite';
 
 /**
  * Fires a 10-token prompt to classify query sensitivity BEFORE primary
- * inference. Replaces the brittle regex classifier.
+ * inference. Determines whether The Prosecutor must synchronously verify.
  *
  * Returns: 'SENSITIVE' | 'PROCEDURAL' | 'GENERAL'
  *
- * If the classifier fails (timeout, parse error), defaults to 'GENERAL'
- * to avoid blocking non-sensitive traffic.
+ * V5.2 FAIL-CLOSED POLICY:
+ * If the classifier fails (timeout, network, quota), OR returns an
+ * ambiguous result, it defaults to 'SENSITIVE'. This forces mandatory
+ * synchronous verification whenever the security sensors are offline.
+ * We do NOT "Fail-Open" in a Fortress.
  *
  * @param {GoogleGenAI} genai - AI client
  * @param {string} query - User query
@@ -414,16 +464,17 @@ async function classifyQuerySensitivity(genai, query) {
       },
     });
     const classification = result.text.trim().toUpperCase();
-    if (['SENSITIVE', 'PROCEDURAL', 'GENERAL'].includes(classification)) {
-      return classification;
-    }
-    // Model returned unexpected text — extract if embedded
-    if (classification.includes('SENSITIVE')) return 'SENSITIVE';
-    if (classification.includes('PROCEDURAL')) return 'PROCEDURAL';
-    return 'GENERAL';
+    // Only accept exact, unambiguous matches
+    if (classification === 'PROCEDURAL') return 'PROCEDURAL';
+    if (classification === 'GENERAL') return 'GENERAL';
+    // Anything else — including partial matches, empty strings,
+    // or unexpected model output — is treated as SENSITIVE.
+    // This is the Pessimistic Classification principle.
+    return 'SENSITIVE';
   } catch (err) {
-    console.warn(`[SHADOW_CLASSIFIER] Failed: ${err.message}. Defaulting to GENERAL.`);
-    return 'GENERAL';
+    // FAIL-CLOSED: Classifier down → treat as SENSITIVE → mandatory sync audit.
+    console.warn(`[SHADOW_CLASSIFIER] FAIL-CLOSED: ${err.message}. Defaulting to SENSITIVE.`);
+    return 'SENSITIVE';
   }
 }
 
@@ -498,11 +549,11 @@ async function handleSentinelInference(req, res) {
       const queryVector = embResult.embeddings[0].values;
       trace.embedding = Date.now() - tEmbed0;
 
-      // Step 3: RAG Cascade — RESULT-AWARE RACING (V5.1 raceToData)
-      // All tiers fire concurrently. raceToData returns the FIRST
-      // promise with non-empty results. Empty results are ignored.
-      // This prevents hallucination from fast-but-empty BigQuery
-      // responses while Postgres has data at slightly higher latency.
+      // Step 3: RAG Cascade — PRISTINE PRIORITY RACING (V5.2)
+      // Both tiers fire concurrently. Postgres gets a 150ms
+      // "Pristine Window" of priority. If Postgres returns data
+      // within 150ms, BigQuery is discarded. If the window expires,
+      // the first tier with data wins.
       const tRag0 = Date.now();
       let contextPayload, dataAuthority;
 
@@ -520,13 +571,13 @@ async function handleSentinelInference(req, res) {
           throw new Error('POSTGRES_ONLY mode: Tier 1 returned no results. Fallback disabled.');
         }
       } else {
-        // FULL_CASCADE: raceToData across all tiers
+        // FULL_CASCADE: Pristine Priority Race (150ms Postgres window)
         const bqPromise = vectorSearchRetrieval(query, genai, tenantId)
           .then(res => ({ tier: 'BQ', res }))
           .catch(err => { console.error('[RAG_CASCADE] BigQuery failed:', err.message); return { tier: 'BQ', res: null }; });
 
         try {
-          const winner = await raceToData([pgPromise, bqPromise]);
+          const winner = await pristineRace(pgPromise, bqPromise);
           contextPayload = winner.res.contextPayload;
           dataAuthority = winner.tier === 'PG' ? 'POSTGRES_PRISTINE_RESERVOIR' : 'GCP_BIGQUERY_VECTOR_RAG';
           if (winner.tier === 'BQ' && winner.res.bqErrors) trace.bqErrors = winner.res.bqErrors;
@@ -534,6 +585,7 @@ async function handleSentinelInference(req, res) {
           // Both tiers empty — try Firestore as last resort
         }
         trace.ragRace = Date.now() - tRag0;
+        trace.pristineWindowMs = PRISTINE_WINDOW_MS;
       }
 
       // C: Firestore (Tier 3 — Legacy Fallback, only if raceToData returned nothing)
@@ -773,7 +825,7 @@ async function handleSentinelInference(req, res) {
       model: modelId || 'gemini-1.5-flash',
       timestamp: new Date().toISOString(),
       data,
-      infrastructure: `Sentinel v5.1 [${dataAuthority}]`,
+      infrastructure: `Sentinel v5.2 [${dataAuthority}]`,
       latencyTrace: trace,
       requestId,
       queryClassification,
