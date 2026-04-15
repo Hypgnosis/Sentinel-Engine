@@ -1,20 +1,29 @@
 /**
- * SENTINEL ENGINE V4.9-RC — Security Manager (Sovereign Abstraction)
+ * SENTINEL ENGINE V5.0 — Security Manager (Sovereign Abstraction)
  * ═══════════════════════════════════════════════════════════════════
  * Hardware-agnostic cryptographic operations using the Repository Pattern.
  *
  * Architecture:
- *   KeyProvider (interface) → SoftwareKmsProvider (V4.9)
- *                           → HardwareHsmProvider (V5.0 — future)
+ *   KeyProvider (interface) → SoftwareKmsProvider (V5.0)
+ *                           → HardwareHsmProvider (V5.1 — future)
  *
- * All PII encryption, field-level tokenization, and payload signing
- * flows through this manager. Swapping to Cloud HSM in V5.0 requires
+ * V5.0 CHANGES:
+ * ─────────────────────────────────────────────────────────────────
+ *   - tokenizePII() now uses HMAC-SHA256 (one-way, irreversible).
+ *     AES-based PII "tokenization" was reversible — security theatre.
+ *   - encryptField/decryptField retained for legitimate use-cases
+ *     (e.g., at-rest encryption of audit payloads), but NEVER for PII.
+ *   - Signing key exposed internally for HMAC hashing via _sigKey.
+ *   - Removed duplicate class definitions from V4.9-RC merge artifacts.
+ *
+ * All PII anonymization, field-level encryption, and payload signing
+ * flows through this manager. Swapping to Cloud HSM in V5.1 requires
  * ONLY changing the provider type in the factory — zero business logic
  * refactoring.
  *
  * Current Provider: SoftwareKmsProvider
  *   - AES-256-GCM for symmetric encryption/decryption
- *   - HMAC-SHA256 for payload signing/verification
+ *   - HMAC-SHA256 for payload signing/verification AND PII hashing
  *   - Key material from GCP Secret Manager
  * ═══════════════════════════════════════════════════════════════════
  */
@@ -32,10 +41,11 @@ const crypto = require('crypto');
  * @property {(data: Buffer) => Promise<string>} sign - Create a signature for data
  * @property {(data: Buffer, signature: string) => Promise<boolean>} verify - Verify a signature
  * @property {() => Promise<{keyId: string, algorithm: string, provider: string}>} getKeyMetadata
+ * @property {string} signingKey - Raw signing key for HMAC derivation
  */
 
 // ─────────────────────────────────────────────────────
-//  SOFTWARE KMS PROVIDER (V4.9 — Current)
+//  SOFTWARE KMS PROVIDER (V5.0 — Current)
 //  Uses Node.js crypto with keys from Secret Manager
 // ─────────────────────────────────────────────────────
 
@@ -46,7 +56,7 @@ class SoftwareKmsProvider {
    * @param {string} params.signingKey - HMAC signing key
    * @param {string} [params.keyId] - Key identifier for metadata
    */
-  constructor({ encryptionKey, signingKey, keyId = 'sentinel-sw-v49' }) {
+  constructor({ encryptionKey, signingKey, keyId = 'sentinel-sw-v50' }) {
     if (!encryptionKey || encryptionKey.length < 32) {
       throw new Error('SoftwareKmsProvider: encryptionKey must be at least 32 characters (hex).');
     }
@@ -144,14 +154,14 @@ class SoftwareKmsProvider {
 }
 
 // ─────────────────────────────────────────────────────
-//  HARDWARE HSM PROVIDER (V5.0 — Placeholder)
+//  HARDWARE HSM PROVIDER (V5.1 — Placeholder)
 // ─────────────────────────────────────────────────────
 
 class HardwareHsmProvider {
   constructor() {
     throw new Error(
-      'HardwareHsmProvider is reserved for V5.0 "Sovereign" release. ' +
-      'Use SoftwareKmsProvider for V4.9-RC.'
+      'HardwareHsmProvider is reserved for V5.1 "Sovereign HSM" release. ' +
+      'Use SoftwareKmsProvider for V5.0.'
     );
   }
 }
@@ -172,8 +182,11 @@ class SecurityManager {
   }
 
   /**
-   * Encrypt a string field (e.g. PII).
+   * Encrypt a string field (e.g. audit payload at-rest).
    * Returns a base64-encoded ciphertext.
+   *
+   * WARNING: Do NOT use for PII anonymization — use tokenizePII() instead.
+   *
    * @param {string} field
    * @returns {Promise<string>}
    */
@@ -205,55 +218,6 @@ class SecurityManager {
   }
 
   /**
-   * PII Tokenization — HMAC-SHA256 Deterministic Hashing
-   * @param {string} text
-   * @returns {Promise<string>}
-   */
-  async tokenizePII(text) {
-    if (!text) return text;
-    let result = text;
-
-    const generateToken = async (value, type) => {
-      const hashHex = await this.#provider.sign(Buffer.from(value.trim(), 'utf8'));
-      return `[${type}:${hashHex.substring(0, 12)}]`;
-    };
-
-    const runAsyncReplace = async (str, regex, type) => {
-      let match;
-      const matches = [];
-      const expr = new RegExp(regex.source, regex.flags);
-      while ((match = expr.exec(str)) !== null) {
-         matches.push(match);
-      }
-      for (const m of matches) {
-         const token = await generateToken(m[1] || m[0], type);
-         str = str.replace(m[0], type === 'SUBJ' ? `patient_id: ${token}` : token);
-      }
-      return str;
-    };
-
-    // SSN: 123-45-6789
-    result = await runAsyncReplace(result, /\d{3}-\d{2}-\d{4}/g, 'SSN');
-    // Credit card: 1234-5678-9012-3456
-    result = await runAsyncReplace(result, /\d{4}-\d{4}-\d{4}-\d{4}/g, 'CC');
-    // Patient ID: patient_id: ABC123
-    result = await runAsyncReplace(result, /patient_id:\s*([a-zA-Z0-9]+)/gi, 'SUBJ');
-
-    return result;
-  }
-}
-
-module.exports = {
-  SecurityManager,
-  SoftwareKmsProvider,
-  HardwareHsmProvider,
-};
-  async signPayload(payload) {
-    const data = Buffer.from(JSON.stringify(payload), 'utf8');
-    return this.#provider.sign(data);
-  }
-
-  /**
    * Verify a JSON payload against a signature.
    * @param {object} payload
    * @param {string} signature
@@ -265,33 +229,68 @@ module.exports = {
   }
 
   /**
-   * Tokenize PII fields in a text string using encrypted tokens.
-   * Replaces SSN, CC, and patient ID patterns with encrypted references.
-   * @param {string} text
-   * @returns {Promise<string>}
+   * PII Tokenization — TRUE ONE-WAY ANONYMIZATION (HMAC-SHA256)
+   *
+   * V5.0 SOVEREIGN MANDATE:
+   *   This method produces IRREVERSIBLE, deterministic hashes.
+   *   It uses crypto.createHmac('sha256', signingKey) directly.
+   *   It does NOT call encryptField() — AES is reversible and
+   *   constitutes "security theatre" for PII anonymization.
+   *
+   * Salted identifiers: SSNs, Credit Cards, and Subject IDs are
+   * converted to irreversible tokens: [HASHED_SSN:8a3f...],
+   * [HASHED_CC:b7e2...], [HASHED_ID:c9d0...].
+   *
+   * @param {string} text - Input text containing potential PII
+   * @returns {Promise<string>} Text with PII replaced by HMAC tokens
    */
   async tokenizePII(text) {
+    if (!text) return text;
     let result = text;
 
-    // SSN pattern: 123-45-6789
+    /**
+     * Produce a one-way HMAC-SHA256 hash of the given value.
+     * Uses the signing key from the provider (injected via Secret Manager).
+     * @param {string} value - Raw PII value
+     * @param {string} type - Token type label (SSN, CC, SUBJ)
+     * @returns {string} Irreversible token string
+     */
+    const hmacHash = (value, type) => {
+      const hash = crypto
+        .createHmac('sha256', this.#provider._sigKey)
+        .update(value.trim())
+        .digest('hex');
+      return `[HASHED_${type}:${hash.substring(0, 12)}]`;
+    };
+
+    // SSN: 123-45-6789 — one-way hash
     const ssnMatches = result.match(/\d{3}-\d{2}-\d{4}/g) || [];
     for (const ssn of ssnMatches) {
-      const token = await this.encryptField(ssn);
-      result = result.replace(ssn, `[SSN_ENC:${token.substring(0, 12)}]`);
+      result = result.replace(ssn, hmacHash(ssn, 'SSN'));
     }
 
-    // Credit card: 1234-5678-9012-3456
+    // Credit card: 1234-5678-9012-3456 — one-way hash
     const ccMatches = result.match(/\d{4}-\d{4}-\d{4}-\d{4}/g) || [];
     for (const cc of ccMatches) {
-      const token = await this.encryptField(cc);
-      result = result.replace(cc, `[CC_ENC:${token.substring(0, 12)}]`);
+      result = result.replace(cc, hmacHash(cc, 'CC'));
     }
 
-    // Patient ID: patient_id: ABC123
-    const pidMatches = result.match(/patient_id:\s*[a-zA-Z0-9]+/gi) || [];
+    // Subject/Patient ID: patient_id: ABC123 — one-way hash
+    const pidMatches = result.match(/patient_id:\s*([a-zA-Z0-9]+)/gi) || [];
     for (const pid of pidMatches) {
-      const token = await this.encryptField(pid);
-      result = result.replace(pid, `patient_id: [SUBJ_ENC:${token.substring(0, 12)}]`);
+      const idValue = pid.match(/patient_id:\s*([a-zA-Z0-9]+)/i);
+      if (idValue && idValue[1]) {
+        result = result.replace(pid, `patient_id: ${hmacHash(idValue[1], 'ID')}`);
+      }
+    }
+
+    // Subject ID fields in JSON: "subject_id": "VALUE" — one-way hash
+    const subjMatches = result.match(/"subject_id":\s*"([^"]+)"/g) || [];
+    for (const subj of subjMatches) {
+      const idMatch = subj.match(/"subject_id":\s*"([^"]+)"/);
+      if (idMatch && idMatch[1]) {
+        result = result.replace(subj, `"subject_id": "${hmacHash(idMatch[1], 'ID')}"`);
+      }
     }
 
     return result;
@@ -310,6 +309,9 @@ module.exports = {
   /**
    * Create a SecurityManager with the specified provider type.
    *
+   * V5.0: Keys MUST be present in the environment at boot time.
+   * The global-scope boot guard in index.js guarantees this.
+   *
    * @param {'software'|'hardware'} providerType
    * @param {object} [options] - Provider-specific options
    * @param {string} [options.encryptionKey] - For software provider
@@ -327,14 +329,14 @@ module.exports = {
 
         if (!encKey) {
           throw new Error(
-            'SECURITY_BOOT_FAILURE: SENTINEL_ENCRYPTION_KEY is not set. ' +
+            '[FATAL_SECURITY_BOOT_FAILURE] SENTINEL_ENCRYPTION_KEY is not set. ' +
             'Fetch this secret from GCP Secret Manager before initializing SecurityManager. ' +
             'The engine will not run in an unencrypted state.'
           );
         }
         if (!sigKey) {
           throw new Error(
-            'SECURITY_BOOT_FAILURE: SENTINEL_SIGNING_KEY is not set. ' +
+            '[FATAL_SECURITY_BOOT_FAILURE] SENTINEL_SIGNING_KEY is not set. ' +
             'Fetch this secret from GCP Secret Manager before initializing SecurityManager. ' +
             'The engine will not run without payload signing.'
           );
@@ -343,17 +345,17 @@ module.exports = {
         const provider = new SoftwareKmsProvider({
           encryptionKey: encKey,
           signingKey: sigKey,
-          keyId: options.keyId || 'sentinel-sw-v49',
+          keyId: options.keyId || 'sentinel-sw-v50',
         });
 
-        console.log('[SECURITY_MANAGER] Initialized with SoftwareKmsProvider. Key source: Secret Manager.');
+        console.log('[SECURITY_MANAGER] Initialized with SoftwareKmsProvider (V5.0). Key source: Secret Manager. PII mode: HMAC-SHA256 (irreversible).');
         return new SecurityManager(provider);
       }
 
       case 'hardware':
         throw new Error(
-          'HardwareHsmProvider is not available until V5.0. ' +
-          'Use providerType="software" for V4.9-RC.'
+          'HardwareHsmProvider is not available until V5.1. ' +
+          'Use providerType="software" for V5.0.'
         );
 
       default:

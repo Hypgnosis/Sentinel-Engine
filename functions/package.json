@@ -1,7 +1,7 @@
 {
   "name": "sentinel-engine-core",
-  "version": "4.9.0-rc",
-  "description": "Sentinel Engine — Sovereign Intelligence Layer (Cloud Function, V4.9-RC Fortress)",
+  "version": "5.0.0-sovereign",
+  "description": "Sentinel Engine — Sovereign Intelligence Layer (Cloud Function, V5.0 Fortress)",
   "main": "index.js",
   "engines": {
     "node": ">=20"

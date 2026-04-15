@@ -1,12 +1,21 @@
 /**
- * SENTINEL ENGINE V4.5 — Deterministic Logic Layer (DLL)
+ * SENTINEL ENGINE V5.0 — Deterministic Logic Layer (DLL)
  * ═══════════════════════════════════════════════════════════
  * Hard-coded safety intercepts that override AI behavior.
+ *
+ * V5.0 CHANGES:
+ * ─────────────────────────────────────────────────────────
+ *   - Removed all PII regex patterns (redactPII). PII masking
+ *     is now exclusively handled by SecurityManager.tokenizePII()
+ *     using HMAC-SHA256 one-way hashing. The DLL is NOT the
+ *     source of truth for data sovereignty — the SecurityManager is.
+ *   - Retained procedural intercept rules (Vessel Risk, Margin).
+ *     These are consumed via IntegrityController.checkProceduralRules().
  */
 
 /**
  * Intercepts the query and context to enforce deterministic rules.
- * 
+ *
  * @param {string} query - User query
  * @param {string} context - RAG context
  * @returns {object|null} Override result or null to continue with AI
@@ -31,20 +40,26 @@ function dllInterceptor(query, context) {
   }
 
   // Rule 2: Margin Level Risk
-  // (This can also be implemented as a post-processor or by augmenting the prompt)
-  // For now, if we detect low margin in the context, we can flag it.
   if (normalizedContext.includes('"margin"') && extractMinMargin(context) < 0.05) {
-     // We don't necessarily override the whole result if we want the AI to analyze it,
-     // but we could prepend a warning or handle it here.
-     // In V4.5, "The AI MUST flag Lane Level Risk and escalate to a human."
-     // We can add a "DLL metadata" that the frontend can use to show an alert.
+    return {
+      narrative: "### DETERMINISTIC OVERRIDE: CRITICAL MARGIN ALERT\n\nSentinel DLL has detected margin levels below the 5% safety threshold. Lane-level risk escalation is mandatory.\n\n**Mandatory Decision:** Escalate to human review immediately. Automated approval is suspended for this lane.",
+      metrics: [
+        { label: "Margin Level", value: `${(extractMinMargin(context) * 100).toFixed(1)}%`, trend: "down", confidence: 1.0 },
+        { label: "Override Directive", value: "DLL-MARGIN-GATE", trend: "stable", confidence: 1.0 }
+      ],
+      confidence: 1.0,
+      sources: ["Sentinel DLL Safety Interceptor"],
+      dataAuthority: "SENTINEL_DLL_OVERRIDE"
+    };
   }
 
   return null; // No override
 }
 
 /**
- * Utility to extract minimum margin from context JSON strings
+ * Utility to extract minimum margin from context JSON strings.
+ * @param {string} context - RAG context string
+ * @returns {number} Minimum margin value found, or 1.0 if none
  */
 function extractMinMargin(context) {
   const matches = context.match(/"margin":\s*(\d*\.?\d+)/g);
@@ -54,5 +69,6 @@ function extractMinMargin(context) {
 }
 
 module.exports = {
-  dllInterceptor
+  dllInterceptor,
+  extractMinMargin,
 };

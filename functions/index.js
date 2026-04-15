@@ -1,20 +1,27 @@
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (V4.9-RC "FORTRESS")
+/**
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.0 "SOVEREIGN FORTRESS")
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20) — Gen2
  *
- * V4.9-RC CHANGES (Fortress Build):
- * ─────────────────────────────────────
- * PHASE 1 — PEP Gate: JWKS + Firebase dual-layer auth
- * PHASE 2 — DLL: Zod sub-schema decomposition + recursive retry
- * PHASE 3 — NLI: Adversarial verification loop (Prosecutor sidecar)
- * PHASE 4 — SWR: Upstash Redis cache + circuit breaker
- * PHASE 5 — Sovereign: SecurityManager with KeyProvider abstraction
+ * V5.0 CHANGES (Sovereign Fortress Build):
+ * ─────────────────────────────────────────
+ * TASK 1 — Atomic Boot Guard: All secrets resolved at global scope.
+ *          SecurityManager initialized BEFORE function registration.
+ *          Missing secrets → process.exit(1). No lazy-loading.
+ * TASK 2 — HMAC PII: tokenizePII uses one-way HMAC-SHA256.
+ *          AES encryption is no longer used for PII anonymization.
+ * TASK 3 — Integrity Controller: Consolidated DLL + Zod + PII sweep.
+ *          SecurityManager injected via constructor (DI pattern).
+ * TASK 4 — 2AM Correctness Gate: Resilience mode physically modifies
+ *          the narrative with an advisory string. SOURCE_ALPHA_MISSING → 503.
+ * TASK 5 — Infrastructure: Pool max=50, version 5.0.0-sovereign.
  *
  * Constraints:
  *   - Sub-4s P95 latency target
  *   - Sovereign-as-Code (hardware-abstract)
  *   - Zod-enforced schema compliance
  *   - Zero hardcoded secrets
+ *   - Zero lazy-loaded security primitives
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -26,12 +33,45 @@ const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const textToSpeech = require('@google-cloud/text-to-speech');
 const admin = require('firebase-admin');
 
-// ─────────────────────────────────────────────────────
-//  HARD BOOT LOCK (SECURITY MANDATE)
-// ─────────────────────────────────────────────────────
-if (!process.env.DB_PASSWORD || !process.env.SENTINEL_ENCRYPTION_KEY || !process.env.SENTINEL_SIGNING_KEY) {
-  throw new Error("FATAL_BOOT_FAILURE: Essential security keys missing from environment. Container halted.");
+// ═══════════════════════════════════════════════════════
+//  TASK 1: ATOMIC BOOT GUARD (Global Scope)
+//  ─────────────────────────────────────────────────────
+//  ALL critical secrets are validated and the SecurityManager
+//  is constructed BEFORE any function exports are registered.
+//  If ANY secret is missing, the container crashes immediately.
+//  No lazy-loading. No graceful degradation. No security theatre.
+// ═══════════════════════════════════════════════════════
+
+const REQUIRED_SECRETS = {
+  DB_PASSWORD: process.env.DB_PASSWORD,
+  SENTINEL_ENCRYPTION_KEY: process.env.SENTINEL_ENCRYPTION_KEY,
+  SENTINEL_SIGNING_KEY: process.env.SENTINEL_SIGNING_KEY,
+};
+
+for (const [name, value] of Object.entries(REQUIRED_SECRETS)) {
+  if (!value || value.trim().length === 0) {
+    console.error(`[FATAL_SECURITY_BOOT_FAILURE] Secret "${name}" is missing or empty. Container HALTED.`);
+    process.exit(1);
+  }
 }
+
+// SecurityManager: Initialized at boot — NOT lazily inside request handlers.
+const { SecurityManager } = require('./security-manager');
+
+/** @type {import('./security-manager').SecurityManager} */
+let _securityManager;
+try {
+  _securityManager = SecurityManager.create('software');
+} catch (err) {
+  console.error(`[FATAL_SECURITY_BOOT_FAILURE] SecurityManager.create() failed: ${err.message}`);
+  process.exit(1);
+}
+
+console.log('[BOOT_GUARD] All secrets verified. SecurityManager initialized. Container is SECURE.');
+
+// ─────────────────────────────────────────────────────
+//  MODULE IMPORTS (post-boot-guard)
+// ─────────────────────────────────────────────────────
 
 const {
   loadInstanceConfig,
@@ -45,13 +85,12 @@ const {
 const { getSql, postgresVectorSearch, isSubjectRevoked } = require('./db');
 const { IntegrityController } = require('./integrity-controller');
 
-// V4.9-RC: New Fortress Modules
+// V4.9-RC: Fortress Modules
 const { verifyPEP, PEPError } = require('./pep-gate');
 const { GEMINI_RESPONSE_SCHEMA, validateInferenceResponse } = require('./schemas');
 const { recursiveSchemaRetry } = require('./recursive-retry');
 const { launchVerificationSidecar, getVerificationStatus } = require('./verification-loop');
 const { swrFetch, circuitBreaker } = require('./swr-cache');
-const { SecurityManager } = require('./security-manager');
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -78,15 +117,13 @@ const DATA_FRESHNESS_HOURS = parseInt(process.env.DATA_FRESHNESS_HOURS || '72', 
 const INSTANCE_CONFIG = loadInstanceConfig();
 const ACTIVE_BQ_DATASET = INSTANCE_CONFIG.database?.datasetId || BQ_DATASET;
 
-// V4.9-RC: SecurityManager (lazy init — needs DATABASE_URL for key derivation)
-let _securityManager = null;
-function getSecurityManager() {
-  if (!_securityManager) {
-    // Fortress V4.9-RC: Software-backed KMS (AES-256-GCM)
-    _securityManager = SecurityManager.create('software');
-  }
-  return _securityManager;
-}
+/**
+ * The resilience advisory string prepended to stale narratives
+ * when the circuit breaker is open and the engine is serving cached data.
+ * @type {string}
+ */
+const RESILIENCE_ADVISORY =
+  '[ADVISORY: Serving cached intelligence. Live verification currently unavailable due to reservoir connectivity.]\n\n';
 
 // ─────────────────────────────────────────────────────
 //  SERVICES
@@ -104,6 +141,11 @@ const _secretCache = {};
 //  UTILITIES
 // ─────────────────────────────────────────────────────
 
+/**
+ * Fetch a secret from GCP Secret Manager. Returns cached values on repeat calls.
+ * @param {string} secretName
+ * @returns {Promise<string|null>}
+ */
 async function getSecret(secretName) {
   if (_secretCache[secretName]) return _secretCache[secretName];
   const name = `projects/${GCP_PROJECT_ID}/secrets/${secretName}/versions/latest`;
@@ -118,6 +160,10 @@ async function getSecret(secretName) {
   }
 }
 
+/**
+ * Get the Vertex AI client (lazy-init is acceptable here — not a security primitive).
+ * @returns {GoogleGenAI}
+ */
 function getAI() {
   if (!ai) {
     ai = new GoogleGenAI({
@@ -134,6 +180,12 @@ const ALLOWED_ORIGINS = [
   'https://sentinel.high-archy.tech', 'https://sentinel-engine.netlify.app',
 ];
 
+/**
+ * Handle CORS preflight and method enforcement.
+ * @param {object} req
+ * @param {object} res
+ * @returns {boolean} True if the request was fully handled (OPTIONS/405)
+ */
 const handleCORS = (req, res) => {
   const origin = req.headers.origin;
   if (ALLOWED_ORIGINS.includes(origin)) res.set('Access-Control-Allow-Origin', origin);
@@ -149,6 +201,13 @@ const handleCORS = (req, res) => {
 //  INFERENCE LOGIC
 // ─────────────────────────────────────────────────────
 
+/**
+ * Perform vector search across BigQuery tables.
+ * @param {string} queryText
+ * @param {GoogleGenAI} genaiClient
+ * @param {string} tenantId
+ * @returns {Promise<{contextPayload: string, resultCount: number, bqErrors?: string[]}>}
+ */
 async function vectorSearchRetrieval(queryText, genaiClient, tenantId) {
   const embeddingResponse = await genaiClient.models.embedContent({
     model: EMBEDDING_MODEL,
@@ -180,7 +239,7 @@ async function vectorSearchRetrieval(queryText, genaiClient, tenantId) {
       )
       ORDER BY distance ASC
     `;
-    console.log('[BQ_QUERY_DEBUG] dataset=' + ACTIVE_BQ_DATASET + ' table=' + table + ' tenantId=' + tenantId);
+    console.log(`[BQ_QUERY] dataset=${ACTIVE_BQ_DATASET} table=${table} tenantId=${tenantId}`);
     try {
       const [rows] = await bigquery.query({ query, params: { tenantId }, location: 'US' });
       return { label, rows };
@@ -231,6 +290,11 @@ async function vectorSearchRetrieval(queryText, genaiClient, tenantId) {
   };
 }
 
+/**
+ * Firestore legacy retrieval (Tier 3 fallback).
+ * @param {string} contextKey
+ * @returns {Promise<{contextPayload: string|null}>}
+ */
 async function firestoreLegacyRetrieval(contextKey) {
   let doc = await firestore.collection('sentinel_data').doc(contextKey).get();
   if (!doc.exists || doc.data()?.content === 'DATA MOAT INITIALIZED') {
@@ -248,6 +312,12 @@ async function firestoreLegacyRetrieval(contextKey) {
   return { contextPayload: content };
 }
 
+/**
+ * Apply the Kill Switch: redact data for revoked subject IDs.
+ * @param {string|null} context
+ * @param {string} requestId
+ * @returns {Promise<string|null>}
+ */
 async function applyKillSwitch(context, requestId) {
   if (!context) return null;
   const idMatches = context.match(/"subject_id":\s*"([^"]+)"/g);
@@ -268,15 +338,28 @@ async function applyKillSwitch(context, requestId) {
 //  MODEL TIERING — Authorized Routing Logic
 // ─────────────────────────────────────────────────────
 
+/**
+ * Select the inference model based on query complexity and instance config.
+ * @param {string} query
+ * @param {object} instanceConfig
+ * @returns {string} Model ID
+ */
 function selectModel(query, instanceConfig) {
-  // V4.9-RC: gemini-1.5-flash (stable production model) with thinking disabled for strict 4s SLO
+  // V5.0: gemini-1.5-flash (stable production model) with thinking disabled for strict 4s SLO
   return 'gemini-1.5-flash';
 }
 
 // ─────────────────────────────────────────────────────
-//  ENTRY POINT: SENTINEL INFERENCE (V4.9-RC)
+//  ENTRY POINT: SENTINEL INFERENCE (V5.0 Sovereign)
 // ─────────────────────────────────────────────────────
 
+/**
+ * Main inference handler. Orchestrates: PEP Auth → SWR Cache → RAG Cascade →
+ * DLL Rules → AI Generation → Zod Validation → PII Tokenization → Response.
+ *
+ * @param {object} req - Cloud Function HTTP request
+ * @param {object} res - Cloud Function HTTP response
+ */
 async function handleSentinelInference(req, res) {
   const requestId = `SEN-${Date.now()}`;
   const t0 = Date.now();
@@ -312,7 +395,7 @@ async function handleSentinelInference(req, res) {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Empty Query', requestId });
 
-    // Step 1: Database URL (lazy fetch from Secret Manager — never hardcoded)
+    // Step 1: Database URL (fetch from Secret Manager if not yet in env)
     const tSecrets0 = Date.now();
     if (!process.env.DATABASE_URL) {
       const dbUrl = await getSecret('DATABASE_URL');
@@ -403,11 +486,13 @@ async function handleSentinelInference(req, res) {
       contextPayload = await applyKillSwitch(contextPayload, requestId);
       trace.killSwitch = Date.now() - tKill0;
 
+      // ═══ TASK 4: SOURCE_ALPHA_MISSING → 503 ═══
       if (!contextPayload) {
         trace.total = Date.now() - t0;
         return {
           _sourceAlphaMissing: true,
           status: 503,
+          code: 'SOURCE_ALPHA_MISSING',
           error: 'SOURCE_ALPHA_MISSING',
           message: 'RAG cascade returned zero results across all data tiers. The Pristine Reservoir, Data Moat, and Legacy Fallback are empty for this tenant.',
           latencyTrace: trace,
@@ -416,7 +501,7 @@ async function handleSentinelInference(req, res) {
       }
 
       // Step 5: Procedural Rules Intercept Verification (Integrity Controller)
-      const integrityCtrl = new IntegrityController(getSecurityManager());
+      const integrityCtrl = new IntegrityController(_securityManager);
       const dllOverride = integrityCtrl.checkProceduralRules(query, contextPayload);
       if (dllOverride) {
         return {
@@ -429,7 +514,7 @@ async function handleSentinelInference(req, res) {
       // ═══ PHASE 2: AI Inference with Zod Schema Decomposition ═══
       const tGen0 = Date.now();
       const systemPrompt = buildInstanceSystemPrompt(INSTANCE_CONFIG, contextPayload, dataAuthority)
-        || `SYSTEM: Sentinel v4.9-RC Fortress. Context: ${contextPayload}`;
+        || `SYSTEM: Sentinel v5.0 Sovereign Fortress. Context: ${contextPayload}`;
       const modelId = selectModel(query, INSTANCE_CONFIG);
 
       let data = null;
@@ -491,7 +576,6 @@ async function handleSentinelInference(req, res) {
           fallbackRetries++;
           console.warn(`[JSON_RETRY] Parse error on attempt ${fallbackRetries}: ${err.message}`);
           if (fallbackRetries >= 2) {
-            // Import the fallback builder
             const { buildGenericAdvisory } = require('./recursive-retry');
             data = buildGenericAdvisory(['executiveAction'], { parse: err.message });
           }
@@ -545,10 +629,11 @@ async function handleSentinelInference(req, res) {
       });
     }
 
-    // Handle SOURCE_ALPHA_MISSING — structured 503 from RAG cascade
+    // ═══ TASK 4: SOURCE_ALPHA_MISSING → 503 Service Unavailable ═══
     if (swrData._sourceAlphaMissing) {
       return res.status(503).json({
         status: 'SOURCE_ALPHA_MISSING',
+        code: 'SOURCE_ALPHA_MISSING',
         error: swrData.error,
         message: swrData.message,
         latencyTrace: swrData.latencyTrace,
@@ -569,11 +654,17 @@ async function handleSentinelInference(req, res) {
         verificationStatus: 'not_applicable',
         isResilienceMode,
         cacheStatus: swrResult.cacheStatus,
-        infrastructure: `Sentinel v4.9-RC [SENTINEL_DLL_OVERRIDE]`,
+        infrastructure: `Sentinel v5.0 [SENTINEL_DLL_OVERRIDE]`,
       });
     }
 
     const { data, modelId, dataAuthority, contextPayload } = swrData;
+
+    // ═══ TASK 4: 2AM "Correctness" Gate — Resilience Advisory Injection ═══
+    // If circuit breaker is open (serving stale cache), physically modify the narrative.
+    if (isResilienceMode && data && data.narrative) {
+      data.narrative = RESILIENCE_ADVISORY + data.narrative;
+    }
 
     // ═══ PHASE 3: Launch Verification Sidecar (fire-and-forget) ═══
     if (contextPayload && data.narrative) {
@@ -594,10 +685,10 @@ async function handleSentinelInference(req, res) {
       model: modelId || 'gemini-1.5-flash',
       timestamp: new Date().toISOString(),
       data,
-      infrastructure: `Sentinel v4.9-RC [${dataAuthority}]`,
+      infrastructure: `Sentinel v5.0 [${dataAuthority}]`,
       latencyTrace: trace,
       requestId,
-      // V4.9-RC Fortress additions
+      // V5.0 Sovereign Fortress metadata
       verificationStatus: 'pending',
       isResilienceMode,
       cacheStatus: swrResult.cacheStatus,
@@ -621,6 +712,11 @@ async function handleSentinelInference(req, res) {
 //  ENTRY POINT: VERIFICATION STATUS (Polling)
 // ─────────────────────────────────────────────────────
 
+/**
+ * Polling endpoint for async verification sidecar results.
+ * @param {object} req
+ * @param {object} res
+ */
 async function handleVerificationStatus(req, res) {
   if (handleCORS(req, res)) return;
 
@@ -648,6 +744,11 @@ async function handleVerificationStatus(req, res) {
 //  ENTRY POINT: TTS (Preserved from V4.5.2)
 // ─────────────────────────────────────────────────────
 
+/**
+ * Text-to-Speech synthesis endpoint.
+ * @param {object} req
+ * @param {object} res
+ */
 async function handleSentinelTTS(req, res) {
   if (handleCORS(req, res)) return;
   const { text } = req.body;
