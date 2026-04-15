@@ -25,8 +25,14 @@ let _sql = null;
  */
 function getSql() {
   if (_sql) return _sql;
-  const url = process.env.DATABASE_URL;
-  if (!url) return null;
+
+  const dbPassword = process.env.DB_PASSWORD;
+  if (!dbPassword) {
+    throw new Error('FATAL_SECURITY_BOOT_FAILURE: DB_PASSWORD is required but was not provisioned.');
+  }
+
+  const url = `postgresql://postgres.pgajtcnpnuutlqstpmdr:${dbPassword}@aws-1-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true`;
+
   console.log('[DB_INIT] Initializing Postgres connection pool.');
   _sql = postgres(url, {
     ssl: 'require',
