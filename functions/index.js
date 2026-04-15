@@ -1,7 +1,6 @@
-/**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (v4.9-RC "FORTRESS")
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (V4.9-RC "FORTRESS")
  * ═══════════════════════════════════════════════════════════
- * Google Cloud Function (Node.js 20+) — Gen2
+ * Google Cloud Function (Node.js 20) — Gen2
  *
  * V4.9-RC CHANGES (Fortress Build):
  * ─────────────────────────────────────
@@ -56,7 +55,7 @@ if (!admin.apps.length) {
 //  CONFIGURATION
 // ─────────────────────────────────────────────────────
 
-const GCP_PROJECT_ID  = 'ha-sentinel-core-v21';
+const GCP_PROJECT_ID  = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'ha-sentinel-core-v21';
 const GCP_REGION      = process.env.GCP_REGION || 'us-central1';
 const BQ_DATASET      = process.env.BQ_DATASET || 'sentinel_warehouse';
 const EMBEDDING_MODEL = 'text-embedding-004';
@@ -76,6 +75,7 @@ const ACTIVE_BQ_DATASET = INSTANCE_CONFIG.database?.datasetId || BQ_DATASET;
 let _securityManager = null;
 function getSecurityManager() {
   if (!_securityManager) {
+    // Fortress V4.9-RC: Software-backed KMS (AES-256-GCM)
     _securityManager = SecurityManager.create('software');
   }
   return _securityManager;

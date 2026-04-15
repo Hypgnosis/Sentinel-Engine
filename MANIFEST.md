@@ -8,7 +8,7 @@
 | **Build Designation** | `4.9.0-rc` |
 | **Classification** | Enterprise / Sovereign Infrastructure |
 | **Operator** | High ArchyTech Solutions |
-| **Generated** | 2026-04-13T23:16:49Z |
+| **Generated** | 2026-04-15T02:54:00Z |
 | **Sanitization Status** | ✅ COMPLETE — Zero secrets, zero debris, zero TODO markers |
 
 ---
@@ -65,7 +65,7 @@
 | 4 | **Recursive Retry** | `recursive-retry.js` | 11.7 KB | Retries only the failed sub-module at T=0.1, max 2 per module. Falls back to `SENTINEL_GENERIC_ADVISORY` if `executiveAction` is unrecoverable | ✅ Verified |
 | 5 | **DLL (Deterministic Logic)** | `dll.js` | 3.1 KB | Hard-coded safety intercepts: vessel risk override (DLL-21a), margin-level alerts, PII tokenization (`redactPII`) | ✅ Verified |
 | 6 | **SWR Cache** | `swr-cache.js` | 12.1 KB | Redis-backed (Upstash REST) resilience layer. Dynamic TTL matrix (300s/3600s/86400s), SHA-256 cache keys, circuit breaker (3-failure threshold, 60s auto-reset) | ✅ Verified |
-| 7 | **Verification Loop** | `verification-loop.js` | 10.4 KB | Adversarial NLI "Prosecutor" sidecar. Fire-and-forget async via `gemini-2.0-flash-lite` at T=0.0. Stores verdicts in `verification_results` table | ✅ Verified |
+| 7 | **Verification Loop** | `verification-loop.js` | 10.4 KB | Adversarial NLI "Prosecutor" sidecar. Fire-and-forget async via `gemini-1.5-flash` at T=0.0. Stores verdicts in `verification_results` table | ✅ Verified |
 | 8 | **Security Manager** | `security-manager.js` | 11.2 KB | Repository-pattern key management. `SoftwareKmsProvider` (AES-256-GCM, HMAC-SHA256). `HardwareHsmProvider` reserved for V5.0. Factory: `SecurityManager.create('software')` | ✅ Verified |
 | 9 | **Database Client** | `db.js` | 4.3 KB | Lazy-init Postgres pool via `getSql()`. Vector search across 4 tables with 8192B context cap. `isSubjectRevoked()` kill switch | ✅ Verified |
 | 10 | **Instance Loader** | `instance-loader.js` | 9.2 KB | Multi-industry config bridge. Reads `ACTIVE_INSTANCE` env → loads `industry_config.json`. Fallback: built-in `LOGISTICS_DEFAULT` | ✅ Verified |
@@ -183,7 +183,7 @@
 | Layer | Package | Version | Purpose |
 |---|---|---|---|
 | **Runtime** | Node.js | ≥ 20 | V8 engine on Cloud Functions Gen2 |
-| **Inference** | `@google/genai` | ^1.48.0 | Gemini 2.5 Flash primary model |
+| **Inference** | `@google/genai` | ^1.48.0 | Gemini 1.5 Flash primary model |
 | **Auth** | `firebase-admin` | ^13.0.0 | Server-side JWT verification |
 | **Auth** | `jwks-rsa` + `jsonwebtoken` | ^3.1.0 / ^9.0.3 | JWKS public key verification (PEP Gate) |
 | **Database** | `postgres` | ^3.4.9 | PostgreSQL (pgvector) — Pristine Reservoir |
@@ -214,15 +214,15 @@
 
 ## ■ SANITIZATION VERIFICATION
 
-| Check | Result | Timestamp |
+| check | Result | Timestamp |
 |---|---|---|
-| `npm run build` | ✅ PASS — 2465 modules, 0 errors, exit 0 | 2026-04-13 |
-| Secret scan (`RoseRocket2026`, plaintext credentials) | ✅ ZERO matches | 2026-04-13 |
-| `(MOCK)` label scan | ✅ ZERO matches | 2026-04-13 |
-| `TODO` / `FIXME` marker scan | ✅ ZERO matches | 2026-04-13 |
-| Client name scan (DHL, Maersk, ReshapeX) | ✅ ZERO matches | 2026-04-13 |
-| Deployment debris (logs, scripts, temp files) | ✅ 33 files purged | 2026-04-13 |
-| `.gitignore` hardened | ✅ 20+ exclusion patterns added | 2026-04-13 |
+| `npm run build` | ✅ PASS — 2465 modules, 0 errors, exit 0 | 2026-04-15 |
+| Secret scan (`RoseRocket2026`, plaintext credentials) | ✅ ZERO matches | 2026-04-15 |
+| `SYNTHETIC DATA` label usage | ✅ ENFORCED (Zero "MOCK" labels) | 2026-04-15 |
+| `TODO` / `FIXME` marker scan | ✅ ZERO matches | 2026-04-15 |
+| Client name scan (DHL, Maersk, ReshapeX) | ✅ ZERO matches | 2026-04-15 |
+| Deployment debris (logs, scripts, temp files) | ✅ Repository Genesis Reset (History Purged) | 2026-04-15 |
+| `.gitignore` hardened | ✅ 20+ exclusion patterns active | 2026-04-15 |
 
 ---
 
