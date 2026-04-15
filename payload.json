@@ -1,5 +1,0 @@
-{
-    "status":  "POST-QUANTUM HANDSHAKE VERIFIED",
-    "timestamp":  "2026-03-27T05:31:13.751Z",
-    "payload":  "\n# SENTINEL SOURCE ALPHA | SYNC: 3/27/2026, 4:57:55 AM\n## STATUS: SIMULATION MODE (POST-QUANTUM SECURED)\n\n### FREIGHT_MARKET_INTELLIGENCE (SIMULATED FEED)\n{\n  \"index\": \"FBX Global Container Index\",\n  \"currentRate\": 3438.54,\n  \"currency\": \"USD/FEU\",\n  \"trend\": \"UP\"\n}\n\n### GLOBAL_LOGISTICS_VESSEL_DATA (SIMULATED FEED)\n[\n  {\n    \"name\": \"EVER GIVEN\",\n    \"status\": \"Underway Using Engine\",\n    \"speed_knots\": 16.4,\n    \"destination\": \"ROTTERDAM\"\n  },\n  {\n    \"name\": \"MSC G\u00dcLS\u00dcN\",\n    \"status\": \"Moored\",\n    \"speed_knots\": 0,\n    \"destination\": \"SHANGHAI\"\n  }\n]\n\n### XENETA_RATE_BENCHMARKS (SIMULATED FEED)\n{\n  \"route\": \"Far East to North Europe\",\n  \"shortTermAverage\": 4168.61,\n  \"longTermAverage\": 3824.15,\n  \"reliability\": \"76%\"\n}\n    "
-}

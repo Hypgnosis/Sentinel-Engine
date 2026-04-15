@@ -1,9 +1,9 @@
-# Sentinel Engine v4.1 — Integrator Guide
+# Sentinel Engine v5.1 — Integrator Guide
 
-> **Version**: 4.1.0 (Production)  
+> **Version**: 5.1.0 (Sovereign Absolute — Production)  
 > **Project**: `ha-sentinel-core-v21`  
 > **Author**: High ArchyTech Solutions  
-> **Last Updated**: 2026-04-04  
+> **Last Updated**: 2026-04-15  
 
 ---
 
@@ -25,21 +25,22 @@
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                     SENTINEL ENGINE v4.1                          │
-│                 Data Moat Architecture (GCP-Native)               │
+│                     SENTINEL ENGINE v5.1                          │
+│           Sovereign Absolute Architecture (GCP-Native)            │
 ├──────────────────┬────────────────────┬───────────────────────────┤
 │   INFERENCE      │      ETL           │     INFRASTRUCTURE       │
 │                  │                    │                           │
 │ Cloud Function   │ Cloud Run Job      │ Terraform (IaC)          │
-│ Gemini 2.0 Flash │ Freightos/Xeneta   │ Secret Manager           │
-│ VECTOR_SEARCH    │ Circuit Breaker    │ IAM Service Accounts     │
-│ Structured JSON  │ SHA-256 Dedup      │ Cloud Monitoring + SLOs  │
-│ Tenant-scoped    │ Tenant-stamped     │ Row-Level Security (BQ)  │
+│ Gemini 1.5 Flash │ Freightos/Xeneta   │ Secret Manager           │
+│ Shadow Classifier│ Circuit Breaker    │ IAM Service Accounts     │
+│ raceToData RAG   │ SHA-256 Dedup      │ Cloud Monitoring + SLOs  │
+│ Tenant-scoped    │ Tenant-stamped     │ Row-Level Security       │
+│ Postgres + BQ    │                    │ HKDF Key Derivation      │
 └──────────────────┴────────────────────┴───────────────────────────┘
          │                    │                       │
          ▼                    ▼                       ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│              BigQuery — sentinel_warehouse (RLS Enforced)        │
+│   Postgres (Pristine Reservoir) + BigQuery (sentinel_warehouse)  │
 │  ┌──────────────┐ ┌──────────────┐ ┌─────────────┐ ┌──────────┐│
 │  │freight_indices│ │port_congestion│ │chokepoints  │ │risk_matrix││
 │  │+ tenant_id   │ │+ tenant_id   │ │+ tenant_id  │ │+ tenant_id││
@@ -361,9 +362,10 @@ Every row in BigQuery includes a `tenant_id` column. Access is enforced at three
 | 401 | `SENTINEL_AUTH_INVALID` | Token expired, revoked, or malformed |
 | 403 | `SENTINEL_TENANT_REQUIRED` | User lacks `tenant_id` custom claim |
 | 405 | `SENTINEL_METHOD_DENIED` | Non-POST method used |
+| 422 | `SCHEMA_VALIDATION_FAILED` | AI produced structurally unverifiable output (Zod gate) |
 | 429 | `SENTINEL_RATE_LIMIT_EXCEEDED` | >5 requests in 10 seconds |
 | 500 | `DECISION_LATENCY_ERROR` | Internal inference failure |
-| 503 | `SOURCE_ALPHA_MISSING` | No data in BigQuery or Firestore |
+| 503 | `SOURCE_ALPHA_MISSING` | No data across all RAG tiers |
 
 ---
 
@@ -472,6 +474,23 @@ Only explicitly allowlisted origins can call the API:
 - `http://localhost:5173` (dev)
 - `https://sentinel.high-archy.tech` (production)
 - `https://sentinel-engine.netlify.app` (staging)
+
+### V5.1 Security Enhancements
+
+| Feature | Description |
+|---------|-------------|
+| **Shadow Classifier** | LLM-based sensitivity gate (gemini-2.0-flash-lite) classifies queries before inference. SENSITIVE queries trigger synchronous verification. |
+| **raceToData** | Result-aware RAG racing. Empty results from any tier are ignored; only the first tier with data wins. Prevents hallucination from empty context. |
+| **HKDF PII Tokenization** | Per-tenant HMAC keys derived via HKDF from the global signing key. Cross-tenant PII correlation is cryptographically impossible. |
+| **Fail-Fast Integrity** | Zod schema violations produce typed 422 errors with `failedModules` detail. No degraded data reaches the client. |
+| **Configuration Monism** | `DATABASE_URL` is the sole database config. No fallback chains. Missing at boot → hard crash. |
+
+### FIPS 140-2 / HSM Compliance
+
+> **⚠️ V5.2 Roadmap Item**: FIPS 140-2 Level 2 compliance and Hardware Security Module (HSM)
+> integration via Cloud KMS are planned for V5.2. The current V5.1 release uses a software-based
+> KMS provider (`SoftwareKmsProvider`) with HKDF key derivation. Regulated sectors requiring
+> FIPS-validated cryptographic modules should plan deployment for the V5.2 release cycle.
 
 ---
 

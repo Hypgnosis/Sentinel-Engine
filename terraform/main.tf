@@ -1,10 +1,13 @@
 # ═══════════════════════════════════════════════════════════════════
-#  SENTINEL ENGINE v4.1 — Terraform Provider Configuration
+#  SENTINEL ENGINE v5.1 — Terraform Provider Configuration
 #  Project: ha-sentinel-core-v21
 #
 #  This is the root Terraform configuration that enables the
 #  required GCP APIs, creates Service Accounts, and provisions
 #  Secret Manager slots for all sensitive keys.
+#
+#  V5.1: All IAM bindings from infra/provision-iam.sh are now
+#  managed here. The shell script is DEPRECATED.
 # ═══════════════════════════════════════════════════════════════════
 
 terraform {
@@ -24,7 +27,7 @@ terraform {
   # Remote state in GCS (create bucket manually first)
   # backend "gcs" {
   #   bucket = "ha-sentinel-terraform-state"
-  #   prefix = "sentinel-engine/v41"
+  #   prefix = "sentinel-engine/v51"
   # }
 }
 
@@ -101,7 +104,7 @@ resource "google_service_account" "etl_sa" {
 resource "google_service_account" "inference_sa" {
   account_id   = "sentinel-inference-sa"
   display_name = "Sentinel Inference Function"
-  description  = "Least-privilege SA for the Sentinel Cloud Function. Reads BigQuery, calls Vertex AI."
+  description  = "Least-privilege SA for the Sentinel Cloud Function. Reads BigQuery, calls Vertex AI, reads secrets."
   project      = var.project_id
 }
 
@@ -130,6 +133,13 @@ resource "google_project_iam_member" "inference_bq_viewer" {
 resource "google_project_iam_member" "inference_ai_user" {
   project = var.project_id
   role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.inference_sa.email}"
+}
+
+# V5.1: This binding was previously ONLY in provision-iam.sh — production drift risk.
+resource "google_project_iam_member" "inference_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.inference_sa.email}"
 }
 

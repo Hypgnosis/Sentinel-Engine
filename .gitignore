@@ -68,3 +68,6 @@ out.txt
 
 # Python virtual environments
 .venv/
+
+# Debug payloads (V5.1: Dead code purge)
+payload.json

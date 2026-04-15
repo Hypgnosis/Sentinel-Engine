@@ -1,56 +1,46 @@
 /**
- * SENTINEL ENGINE V5.0 — PostgreSQL Client (Pristine Reservoir)
+ * SENTINEL ENGINE V5.1 — PostgreSQL Client (Pristine Reservoir)
  * ═══════════════════════════════════════════════════════════
  * High-speed RAG grounding for inference.
  *
- * V5.0 DESIGN RULE: Connection config is INJECTED, not compiled.
- * DATABASE_URL is the primary source. If absent, individual
- * DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT env vars
- * are used as a backward-compatible fallback. No hardcoded
- * hostnames or project IDs.
+ * V5.1 DESIGN RULE — CONFIGURATION MONISM:
+ *   DATABASE_URL is the SOLE connection configuration.
+ *   If it is absent at boot, the system crashes.
+ *   No DB_HOST/DB_USER/DB_PASSWORD fallback chains.
+ *   No hardcoded hostnames. One source of truth.
  */
 
 const postgres = require('postgres');
 
 // ─────────────────────────────────────────────────────
-//  CONNECTION POOL (Boot-Validated)
+//  CONNECTION POOL (Boot-Validated, Configuration Monism)
 // ─────────────────────────────────────────────────────
 
 let _sql = null;
 
 /**
  * Returns a live Postgres connection pool.
- * Consumes DATABASE_URL from environment (injected via Secret Manager
- * at boot). If DATABASE_URL is not set, constructs from individual
- * DB_* env vars. Throws on missing credentials.
+ * Consumes DATABASE_URL exclusively from environment.
+ * Throws FATAL_CONFIG_FAILURE if missing.
  */
 function getSql() {
   if (_sql) return _sql;
 
-  const dbPassword = process.env.DB_PASSWORD;
-  if (!dbPassword) {
-    throw new Error('FATAL_SECURITY_BOOT_FAILURE: DB_PASSWORD is required but was not provisioned.');
-  }
-
-  // Primary: Fully-formed DATABASE_URL from environment (injected config)
-  // Fallback: Construct from individual env vars (backward compatibility)
-  const url = process.env.DATABASE_URL
-    || `postgresql://${process.env.DB_USER || 'postgres'}:${dbPassword}@${process.env.DB_HOST}:${process.env.DB_PORT || '6543'}/${process.env.DB_NAME || 'postgres'}?pgbouncer=true`;
-
-  if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
     throw new Error(
-      'FATAL_CONFIG_FAILURE: Neither DATABASE_URL nor DB_HOST is set. ' +
-      'Production configuration must be injected, not compiled.'
+      'FATAL_CONFIG_FAILURE: DATABASE_URL is required but was not provisioned. ' +
+      'Production configuration must be injected via environment, not compiled.'
     );
   }
 
-  console.log('[DB_INIT] Initializing Postgres connection pool.');
+  console.log('[DB_INIT] Initializing Postgres connection pool via DATABASE_URL.');
   _sql = postgres(url, {
     ssl: 'require',
-    max: 50,              // Tier 1 traffic — 10 was free-tier budget
+    max: 50,
     idle_timeout: 30,
-    connect_timeout: 5,   // 5s acquisition from pool before rejecting
-    max_lifetime: 1800,   // Recycle connections every 30min to prevent stale handles
+    connect_timeout: 5,
+    max_lifetime: 1800,
   });
   return _sql;
 }

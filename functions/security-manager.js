@@ -256,22 +256,36 @@ class SecurityManager {
     /**
      * Produce a one-way HMAC-SHA256 hash of the given value.
      * Normalizes the value (strips all non-alphanumeric chars) before hashing.
-     * Prepends the tenantId as a domain-separation salt to prevent
-     * cross-tenant rainbow table attacks. Without this, an attacker
-     * who compromises one tenant's hash space can correlate PII
-     * across all tenants.
+     *
+     * V5.1 CRYPTOGRAPHIC HARDENING:
+     * Uses HKDF to derive a 32-byte per-tenant HMAC key from the global
+     * signing key + tenantId. This is fundamentally stronger than prepending
+     * a plaintext tenantId: the HMAC key itself is tenant-specific, so
+     * an attacker who compromises one tenant's key material cannot use it
+     * to verify or brute-force another tenant's hashes.
+     *
      * @param {string} value - Raw PII value
      * @param {string} type - Token type label (SSN, CC, SUBJ, ID)
      * @returns {string} Irreversible token string
      */
     const hmacHash = (value, type) => {
-      // Normalize: strip all whitespace, dashes, dots for deterministic hash
       const normalized = value.replace(/[\s\-\.]/g, '').trim();
-      // Domain separation: tenantId prefix prevents cross-tenant correlation
-      const saltedInput = tenantId ? `${tenantId}:${normalized}` : normalized;
+
+      // Derive a per-tenant HMAC key via HKDF (32 bytes)
+      // IKM: global signing key, Salt: static domain, Info: tenantId
+      const HKDF_PII_SALT = Buffer.from('sentinel-pii-tokenization-v51', 'utf8');
+      const tenantInfo = tenantId || 'global';
+      const derivedKey = crypto.hkdfSync(
+        'sha256',
+        this.#provider._sigKey,
+        HKDF_PII_SALT,
+        tenantInfo,
+        32
+      );
+
       const hash = crypto
-        .createHmac('sha256', this.#provider._sigKey)
-        .update(saltedInput)
+        .createHmac('sha256', Buffer.from(derivedKey))
+        .update(normalized)
         .digest('hex');
       return `[HASHED_${type}:${hash.substring(0, 12)}]`;
     };

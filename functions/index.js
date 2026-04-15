@@ -1,26 +1,23 @@
 /**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.0 "SOVEREIGN FORTRESS")
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.1 "SOVEREIGN ABSOLUTE")
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20) — Gen2
  *
- * V5.0 CHANGES (Sovereign Fortress Build):
+ * V5.1 CHANGES (Sovereign Absolute Build):
  * ─────────────────────────────────────────
- * TASK 1 — Atomic Boot Guard: All secrets resolved at global scope.
- *          SecurityManager initialized BEFORE function registration.
- *          Missing secrets → process.exit(1). No lazy-loading.
- * TASK 2 — HMAC PII: tokenizePII uses one-way HMAC-SHA256.
- *          AES encryption is no longer used for PII anonymization.
- * TASK 3 — Integrity Controller: Consolidated DLL + Zod + PII sweep.
- *          SecurityManager injected via constructor (DI pattern).
- * TASK 4 — 2AM Correctness Gate: Resilience mode physically modifies
- *          the narrative with an advisory string. SOURCE_ALPHA_MISSING → 503.
- * TASK 5 — Infrastructure: Pool max=50, version 5.0.0-sovereign.
+ * 1 — Configuration Monism: DATABASE_URL is the SOLE DB config.
+ * 2 — raceToData: Result-aware RAG racing. Empty results ignored.
+ * 3 — Shadow Classifier: LLM-based sensitivity classification
+ *      replaces brittle regex. SENSITIVE → sync verification.
+ * 4 — Fail-Fast Integrity: TruthAuditError → 422, zero garbage.
+ * 5 — Per-tenant HKDF PII salt: Cross-tenant correlation impossible.
+ * 6 — Terraform-native IAM: provision-iam.sh deprecated.
  *
  * Constraints:
  *   - Sub-4s P95 latency target
- *   - Sovereign-as-Code (hardware-abstract)
+ *   - Correctness over Latency
  *   - Zod-enforced schema compliance
- *   - Zero hardcoded secrets
+ *   - Zero hardcoded secrets or connection strings
  *   - Zero lazy-loaded security primitives
  * ═══════════════════════════════════════════════════════════
  */
@@ -43,7 +40,7 @@ const admin = require('firebase-admin');
 // ═══════════════════════════════════════════════════════
 
 const REQUIRED_SECRETS = {
-  DB_PASSWORD: process.env.DB_PASSWORD,
+  DATABASE_URL: process.env.DATABASE_URL,
   SENTINEL_ENCRYPTION_KEY: process.env.SENTINEL_ENCRYPTION_KEY,
   SENTINEL_SIGNING_KEY: process.env.SENTINEL_SIGNING_KEY,
 };
@@ -345,8 +342,89 @@ async function applyKillSwitch(context, requestId) {
  * @returns {string} Model ID
  */
 function selectModel(query, instanceConfig) {
-  // V5.0: gemini-1.5-flash (stable production model) with thinking disabled for strict 4s SLO
   return 'gemini-1.5-flash';
+}
+
+// ─────────────────────────────────────────────────────
+//  raceToData — Result-Aware RAG Racing (V5.1)
+// ─────────────────────────────────────────────────────
+
+/**
+ * Races multiple tier promises. Returns the FIRST promise whose result
+ * contains non-zero data (resultCount > 0). Empty results are ignored.
+ * If ALL tiers settle with zero results, rejects.
+ *
+ * This prevents the catastrophic case where BigQuery returns [] in 200ms
+ * and the engine hallucinates from empty context while Postgres had
+ * data-rich results at 400ms.
+ *
+ * @param {Array<Promise<{tier: string, res: object|null}>>} tierPromises
+ * @returns {Promise<{tier: string, res: object}>} First tier with data
+ * @throws {Error} If all tiers settle with no results
+ */
+function raceToData(tierPromises) {
+  return new Promise((resolve, reject) => {
+    let settled = 0;
+    const total = tierPromises.length;
+
+    for (const promise of tierPromises) {
+      promise.then(result => {
+        if (result && result.res && result.res.resultCount > 0) {
+          resolve(result); // First with data wins
+        } else {
+          settled++;
+          if (settled === total) reject(new Error('ALL_TIERS_EMPTY'));
+        }
+      }).catch(() => {
+        settled++;
+        if (settled === total) reject(new Error('ALL_TIERS_EMPTY'));
+      });
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────
+//  SHADOW CLASSIFIER — LLM-based Sensitivity Gate (V5.1)
+// ─────────────────────────────────────────────────────
+
+const SHADOW_CLASSIFIER_MODEL = 'gemini-2.0-flash-lite';
+
+/**
+ * Fires a 10-token prompt to classify query sensitivity BEFORE primary
+ * inference. Replaces the brittle regex classifier.
+ *
+ * Returns: 'SENSITIVE' | 'PROCEDURAL' | 'GENERAL'
+ *
+ * If the classifier fails (timeout, parse error), defaults to 'GENERAL'
+ * to avoid blocking non-sensitive traffic.
+ *
+ * @param {GoogleGenAI} genai - AI client
+ * @param {string} query - User query
+ * @returns {Promise<string>} Classification result
+ */
+async function classifyQuerySensitivity(genai, query) {
+  try {
+    const result = await genai.models.generateContent({
+      model: SHADOW_CLASSIFIER_MODEL,
+      contents: `Classify this query as exactly one of: SENSITIVE, PROCEDURAL, GENERAL.\nQuery: ${query}`,
+      config: {
+        temperature: 0.0,
+        maxOutputTokens: 10,
+        topK: 1,
+      },
+    });
+    const classification = result.text.trim().toUpperCase();
+    if (['SENSITIVE', 'PROCEDURAL', 'GENERAL'].includes(classification)) {
+      return classification;
+    }
+    // Model returned unexpected text — extract if embedded
+    if (classification.includes('SENSITIVE')) return 'SENSITIVE';
+    if (classification.includes('PROCEDURAL')) return 'PROCEDURAL';
+    return 'GENERAL';
+  } catch (err) {
+    console.warn(`[SHADOW_CLASSIFIER] Failed: ${err.message}. Defaulting to GENERAL.`);
+    return 'GENERAL';
+  }
 }
 
 // ─────────────────────────────────────────────────────
@@ -395,9 +473,14 @@ async function handleSentinelInference(req, res) {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Empty Query', requestId });
 
-    // DATABASE_URL/DB_PASSWORD: Validated at BOOT (global scope, lines 45-56).
-    // db.js constructs the connection string from DB_PASSWORD directly.
-    // No Secret Manager fetch needed here — that was a reactive anti-pattern.
+    // V5.1: Shadow Classifier — determine query sensitivity BEFORE inference
+    const tClassify0 = Date.now();
+    const queryClassification = await classifyQuerySensitivity(genai, query);
+    trace.classification = Date.now() - tClassify0;
+    trace.queryClass = queryClassification;
+
+    // DATABASE_URL: Validated at BOOT (global scope, lines 45-56).
+    // db.js consumes DATABASE_URL directly (Configuration Monism).
 
     // ═══ PHASE 4: SWR Cache Check ═══
     // Wrap the entire RAG → Inference pipeline in SWR
@@ -415,27 +498,19 @@ async function handleSentinelInference(req, res) {
       const queryVector = embResult.embeddings[0].values;
       trace.embedding = Date.now() - tEmbed0;
 
-      // Step 3: RAG Cascade — FIRST-PAST-THE-POST (V5.0 Audit R2)
-      // Both Postgres and BigQuery fire concurrently. Whichever tier
-      // returns usable results FIRST wins. No magic timeouts, no
-      // artificial padding. If Postgres is slow, BigQuery serves
-      // immediately. If BigQuery is slow, Postgres serves immediately.
+      // Step 3: RAG Cascade — RESULT-AWARE RACING (V5.1 raceToData)
+      // All tiers fire concurrently. raceToData returns the FIRST
+      // promise with non-empty results. Empty results are ignored.
+      // This prevents hallucination from fast-but-empty BigQuery
+      // responses while Postgres has data at slightly higher latency.
       const tRag0 = Date.now();
       let contextPayload, dataAuthority;
 
-      // Fire both tiers concurrently
       const pgPromise = postgresVectorSearch(queryVector, tenantId)
         .then(res => { circuitBreaker.recordSuccess(); return { tier: 'PG', res }; })
         .catch(err => { circuitBreaker.recordFailure(); console.error('[RAG_CASCADE] Postgres failed:', err.message); return { tier: 'PG', res: null }; });
 
-      const bqPromise = TIER_MODE === 'POSTGRES_ONLY'
-        ? null // Skip BQ in POSTGRES_ONLY mode
-        : vectorSearchRetrieval(query, genai, tenantId)
-            .then(res => ({ tier: 'BQ', res }))
-            .catch(err => { console.error('[RAG_CASCADE] BigQuery failed:', err.message); return { tier: 'BQ', res: null }; });
-
       if (TIER_MODE === 'POSTGRES_ONLY') {
-        // Single-tier mode: await Postgres only
         const pgResult = await pgPromise;
         trace.postgres = Date.now() - tRag0;
         if (pgResult.res && pgResult.res.resultCount > 0) {
@@ -445,27 +520,23 @@ async function handleSentinelInference(req, res) {
           throw new Error('POSTGRES_ONLY mode: Tier 1 returned no results. Fallback disabled.');
         }
       } else {
-        // FULL_CASCADE: Race both tiers — first with results wins
-        const results = await Promise.allSettled([pgPromise, bqPromise]);
-        const settled = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
+        // FULL_CASCADE: raceToData across all tiers
+        const bqPromise = vectorSearchRetrieval(query, genai, tenantId)
+          .then(res => ({ tier: 'BQ', res }))
+          .catch(err => { console.error('[RAG_CASCADE] BigQuery failed:', err.message); return { tier: 'BQ', res: null }; });
 
-        // Sort by whoever returned results (Postgres has priority on ties)
-        const pgSettled = settled.find(s => s.tier === 'PG');
-        const bqSettled = settled.find(s => s.tier === 'BQ');
-
-        if (pgSettled?.res?.resultCount > 0) {
-          contextPayload = pgSettled.res.contextPayload;
-          dataAuthority = 'POSTGRES_PRISTINE_RESERVOIR';
-        } else if (bqSettled?.res?.resultCount > 0) {
-          contextPayload = bqSettled.res.contextPayload;
-          dataAuthority = 'GCP_BIGQUERY_VECTOR_RAG';
-          if (bqSettled.res.bqErrors) trace.bqErrors = bqSettled.res.bqErrors;
+        try {
+          const winner = await raceToData([pgPromise, bqPromise]);
+          contextPayload = winner.res.contextPayload;
+          dataAuthority = winner.tier === 'PG' ? 'POSTGRES_PRISTINE_RESERVOIR' : 'GCP_BIGQUERY_VECTOR_RAG';
+          if (winner.tier === 'BQ' && winner.res.bqErrors) trace.bqErrors = winner.res.bqErrors;
+        } catch (_raceErr) {
+          // Both tiers empty — try Firestore as last resort
         }
-        trace.postgres = Date.now() - tRag0;
-        trace.bigquery = Date.now() - tRag0; // Both ran concurrently
+        trace.ragRace = Date.now() - tRag0;
       }
 
-      // C: Firestore (Tier 3 — Legacy Fallback, only if both tiers returned nothing)
+      // C: Firestore (Tier 3 — Legacy Fallback, only if raceToData returned nothing)
       const tFs0 = Date.now();
       if (!contextPayload) {
         const fsRes = await firestoreLegacyRetrieval(tenantId);
@@ -663,11 +734,11 @@ async function handleSentinelInference(req, res) {
       data.narrative = RESILIENCE_ADVISORY + data.narrative;
     }
 
-    // ═══ PHASE 3: Verification Sidecar ═══
-    // HIGH_SENSITIVITY queries: sidecar is AWAITED — user must not
-    // receive unverified intelligence when the cost of error is high.
-    // Normal queries: fire-and-forget (async background verification).
-    const isHighSensitivity = /\b(compliance|regulatory|legal|audit|financial|contract|penalty|liability|sanction)\b/i.test(query);
+    // ═══ PHASE 3: Verification Sidecar (V5.1 Shadow Classifier) ═══
+    // SENSITIVE queries (classified by Shadow Classifier): sidecar is
+    // AWAITED — response is blocked until The Prosecutor verifies.
+    // PROCEDURAL/GENERAL: fire-and-forget (async background).
+    const isSensitive = queryClassification === 'SENSITIVE';
     let verificationResult = null;
 
     if (contextPayload && data.narrative) {
@@ -679,7 +750,7 @@ async function handleSentinelInference(req, res) {
         sourceContext: contextPayload,
       };
 
-      if (isHighSensitivity) {
+      if (isSensitive) {
         // SYNCHRONOUS: Block response until verification completes
         try {
           verificationResult = await launchVerificationSidecar(sidecarPayload);
@@ -689,7 +760,7 @@ async function handleSentinelInference(req, res) {
           verificationResult = { isVerified: null, error: err.message };
         }
       } else {
-        // ASYNC: Fire-and-forget for normal queries
+        // ASYNC: Fire-and-forget for PROCEDURAL/GENERAL queries
         launchVerificationSidecar(sidecarPayload)
           .catch(err => console.error('[VERIFICATION_SIDECAR] Background error:', err.message));
       }
@@ -702,14 +773,14 @@ async function handleSentinelInference(req, res) {
       model: modelId || 'gemini-1.5-flash',
       timestamp: new Date().toISOString(),
       data,
-      infrastructure: `Sentinel v5.0 [${dataAuthority}]`,
+      infrastructure: `Sentinel v5.1 [${dataAuthority}]`,
       latencyTrace: trace,
       requestId,
-      // V5.0 Sovereign Fortress metadata
-      verificationStatus: isHighSensitivity
+      queryClassification,
+      verificationStatus: isSensitive
         ? (verificationResult?.isVerified === false ? 'HALLUCINATION_FLAGGED' : (verificationResult?.isVerified ? 'verified' : 'verification_failed'))
         : 'pending',
-      verificationResult: isHighSensitivity ? verificationResult : undefined,
+      verificationResult: isSensitive ? verificationResult : undefined,
       isResilienceMode,
       cacheStatus: swrResult.cacheStatus,
       authMethod: ctx.authMethod,

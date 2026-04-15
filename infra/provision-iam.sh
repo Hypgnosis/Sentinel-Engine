@@ -1,6 +1,13 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  SENTINEL ENGINE v4.1 — IAM Service Account Provisioning
+# ██████████████████████████████████████████████████████████████████
+# ██  DEPRECATED — V5.1 SOVEREIGN ABSOLUTE                       ██
+# ██  All IAM bindings are now managed in terraform/main.tf.      ██
+# ██  This script is retained for reference only.                 ██
+# ██  DO NOT execute in production. Use: cd terraform && tf apply  ██
+# ██████████████████████████████████████████████████████████████████
+#
+#  SENTINEL ENGINE v5.0 — IAM Service Account Provisioning (LEGACY)
 #  Creates least-privilege service accounts for production workloads.
 #
 #  Service Accounts:
@@ -10,16 +17,22 @@
 #  Principle: Zero standing privilege. Each component gets only the
 #  IAM roles it needs. No shared service accounts.
 #
-#  Usage:
-#    chmod +x provision-iam.sh && ./provision-iam.sh
+#  Usage: DEPRECATED. Use terraform/main.tf instead.
 # ═══════════════════════════════════════════════════════════════════
+
+echo "⚠️  WARNING: This script is DEPRECATED as of V5.1."
+echo "   All IAM bindings are now managed in terraform/main.tf."
+echo "   Run: cd terraform && terraform init && terraform apply"
+echo ""
+echo "   Exiting. To force execution, remove this guard."
+exit 0
 
 set -euo pipefail
 
 PROJECT_ID="ha-sentinel-core-v21"
 
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  SENTINEL ENGINE v4.1 — IAM Provisioning                ║"
+echo "║  SENTINEL ENGINE v5.0 — IAM Provisioning                ║"
 echo "║  Project: ${PROJECT_ID}                              ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
@@ -62,6 +75,7 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 #  Roles:
 #    - roles/bigquery.dataViewer → Read-only VECTOR_SEARCH queries
 #    - roles/aiplatform.user     → Vertex AI embedding + GenAI calls
+#    - roles/secretmanager.secretAccessor → Read secrets at boot (Boot Guard)
 # ─────────────────────────────────────────────────────
 
 INFERENCE_SA="sentinel-inference-sa"
@@ -85,6 +99,13 @@ echo "[6/6] Binding roles/aiplatform.user to ${INFERENCE_SA}..."
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${INFERENCE_SA_EMAIL}" \
   --role="roles/aiplatform.user" \
+  --condition=None \
+  --quiet
+
+echo "[7/7] Binding roles/secretmanager.secretAccessor to ${INFERENCE_SA}..."
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${INFERENCE_SA_EMAIL}" \
+  --role="roles/secretmanager.secretAccessor" \
   --condition=None \
   --quiet
 
