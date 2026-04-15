@@ -1,19 +1,29 @@
 /**
- * SENTINEL ENGINE V5.1 — PostgreSQL Client (Pristine Reservoir)
+ * SENTINEL ENGINE V5.2 — PostgreSQL Client (Pristine Reservoir)
  * ═══════════════════════════════════════════════════════════
  * High-speed RAG grounding for inference.
  *
- * V5.1 DESIGN RULE — CONFIGURATION MONISM:
+ * V5.2 PROJECT SUB-ZERO LATENCY:
+ *   Engine migrated from Supabase (AWS cross-cloud) to
+ *   GCP Cloud SQL (in-region, Google private backbone).
+ *   Target: <10ms vector search latency.
+ *
+ * CONNECTION MODES:
+ *   Production: Unix socket via Cloud SQL connector.
+ *     DATABASE_URL = postgresql://sentinel:pw@/sentinel_reservoir?host=/cloudsql/PROJECT:REGION:INSTANCE
+ *   Dev/Local: TCP via Cloud SQL Auth Proxy.
+ *     DATABASE_URL = postgresql://sentinel:pw@127.0.0.1:5432/sentinel_reservoir
+ *
+ * CONFIGURATION MONISM:
  *   DATABASE_URL is the SOLE connection configuration.
  *   If it is absent at boot, the system crashes.
- *   No DB_HOST/DB_USER/DB_PASSWORD fallback chains.
- *   No hardcoded hostnames. One source of truth.
+ *   No fallback chains. No hardcoded hostnames.
  */
 
 const postgres = require('postgres');
 
 // ─────────────────────────────────────────────────────
-//  CONNECTION POOL (Boot-Validated, Configuration Monism)
+//  CONNECTION POOL (Boot-Validated, Cloud SQL Native)
 // ─────────────────────────────────────────────────────
 
 let _sql = null;
@@ -21,6 +31,8 @@ let _sql = null;
 /**
  * Returns a live Postgres connection pool.
  * Consumes DATABASE_URL exclusively from environment.
+ * Detects Cloud SQL Unix socket paths and disables SSL accordingly
+ * (Unix sockets are inherently VPC-encrypted, SSL overhead is unnecessary).
  * Throws FATAL_CONFIG_FAILURE if missing.
  */
 function getSql() {
@@ -34,9 +46,15 @@ function getSql() {
     );
   }
 
-  console.log('[DB_INIT] Initializing Postgres connection pool via DATABASE_URL.');
+  // Detect Cloud SQL Unix socket connection (path contains /cloudsql/)
+  const isUnixSocket = url.includes('/cloudsql/');
+  const connectionMode = isUnixSocket ? 'CLOUD_SQL_SOCKET' : 'TCP_PROXY';
+  console.log(`[DB_INIT] Initializing Postgres pool. Mode: ${connectionMode}`);
+
   _sql = postgres(url, {
-    ssl: 'require',
+    // Unix sockets are VPC-encrypted; SSL adds latency overhead.
+    // TCP connections (dev/proxy) still use SSL.
+    ssl: isUnixSocket ? false : 'require',
     max: 50,
     idle_timeout: 30,
     connect_timeout: 5,

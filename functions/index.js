@@ -41,6 +41,7 @@ const admin = require('firebase-admin');
 
 const REQUIRED_SECRETS = {
   DATABASE_URL: process.env.DATABASE_URL,
+  INSTANCE_CONNECTION_NAME: process.env.INSTANCE_CONNECTION_NAME,
   SENTINEL_ENCRYPTION_KEY: process.env.SENTINEL_ENCRYPTION_KEY,
   SENTINEL_SIGNING_KEY: process.env.SENTINEL_SIGNING_KEY,
   SYSTEM_PEPPER: process.env.SYSTEM_PEPPER,
@@ -347,20 +348,23 @@ function selectModel(query, instanceConfig) {
 }
 
 // ─────────────────────────────────────────────────────
-//  PRISTINE PRIORITY RACING — V5.2 "Pristine Window"
+//  PRISTINE PRIORITY RACING — V5.2 "Sub-Zero Window"
 // ─────────────────────────────────────────────────────
 
-const PRISTINE_WINDOW_MS = 150;
+// V5.2 SUB-ZERO LATENCY: Cloud SQL in-region returns in <25ms.
+// 40ms window is generous but tight enough to prevent BigQuery
+// from winning the race against a healthy Pristine Reservoir.
+const PRISTINE_WINDOW_MS = 40;
 
 /**
- * Priority-aware RAG race with a 150ms "Pristine Window."
+ * Priority-aware RAG race with a 40ms "Sub-Zero Window."
  *
  * 1. Fire Postgres (Tier 1) and BigQuery (Tier 2) concurrently.
- * 2. If Postgres returns data within 150ms, resolve immediately
+ * 2. If Postgres returns data within 40ms, resolve immediately
  *    and discard the BigQuery race. This prevents a "Fast Stale Win"
  *    where a BigQuery cache beats fresh Postgres by milliseconds.
- * 3. If the 150ms window expires, resolve with the first available
- *    result from ANY tier that contains data.
+ * 3. If the 40ms window expires (Cloud SQL under load), resolve
+ *    with the first available result from ANY tier that contains data.
  * 4. If all tiers settle with no results, reject with ALL_TIERS_EMPTY.
  *
  * @param {Promise<{tier: string, res: object|null}>} pgPromise
