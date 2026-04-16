@@ -71,3 +71,15 @@ out.txt
 
 # Debug payloads (V5.1: Dead code purge)
 payload.json
+
+# Terraform state (contains secrets)
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+*.tfstate
+*.tfstate.backup
+
+# Cloud SQL Proxy binary
+cloud-sql-proxy.exe
+cloud-sql-proxy

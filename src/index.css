@@ -1,40 +1,43 @@
 @import "tailwindcss";
 
 @theme {
-  /* The Background Canvas (Sentinel v4.5 Cyber-Space) */
-  --color-obsidian: #0F0F1B;
-  --color-obsidian-light: #161625;
-  --color-obsidian-mid: #1D1D2F;
-  --color-obsidian-border: #2D2D44;
+  /* ─── V5.2 GOVERNANCE: Deep Obsidian Canvas ─── */
+  --color-obsidian: #0A0A0A;
+  --color-obsidian-light: #111111;
+  --color-obsidian-mid: #161616;
+  --color-obsidian-border: #1E1E1E;
+  --color-obsidian-border-light: #2A2A2A;
 
-  /* The Primary Brand Accent (Cyber-Purple #D4B2FF) */
-  --color-cyber-purple: #D4B2FF;
-  --color-cyber-purple-dim: rgba(212, 178, 255, 0.15);
-  --color-cyber-purple-glow: rgba(212, 178, 255, 0.4);
+  /* ─── Primary: Cyber-Purple ─── */
+  --color-cyber-purple: #BC13FE;
+  --color-cyber-purple-dim: rgba(188, 19, 254, 0.10);
+  --color-cyber-purple-glow: rgba(188, 19, 254, 0.35);
+  --color-cyber-purple-muted: rgba(188, 19, 254, 0.55);
 
-  /* The Secondary/Text Accent (Clean White) */
-  --color-amber-gold: #FFFFFF;
-  --color-amber-gold-dim: rgba(255, 255, 255, 0.15);
-  --color-amber-gold-glow: rgba(255, 255, 255, 0.4);
+  /* ─── Secondary: Amber-Gold ─── */
+  --color-amber-gold: #FFD700;
+  --color-amber-gold-dim: rgba(255, 215, 0, 0.10);
+  --color-amber-gold-glow: rgba(255, 215, 0, 0.35);
 
-  /* Glass Panel */
-  --color-panel-glass: rgba(17, 17, 17, 0.7);
+  /* ─── Glass Panel ─── */
+  --color-panel-glass: rgba(12, 12, 12, 0.85);
 
-  /* Text Colors */
-  --color-text-primary: #FFFFFF;
-  --color-text-secondary: #A1A1AA;
-  --color-text-muted: #555555;
+  /* ─── Text ─── */
+  --color-text-primary: #E4E4E7;
+  --color-text-secondary: #71717A;
+  --color-text-muted: #3F3F46;
 
-  /* Status */
-  --color-success: #D4B2FF;
-  --color-danger: #FF7EB6;
+  /* ─── Status ─── */
+  --color-success: #22C55E;
+  --color-danger: #EF4444;
+  --color-warning: #F59E0B;
 
-  /* Typography */
+  /* ─── Typography ─── */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-/* ---- Base ---- */
+/* ═══ Base ═══ */
 * {
   margin: 0;
   padding: 0;
@@ -54,36 +57,46 @@ body {
   overflow-x: hidden;
 }
 
-/* ---- Scrollbar ---- */
+/* ═══ Scrollbar ═══ */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: var(--color-obsidian);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-obsidian-border);
+  background: var(--color-obsidian-border-light);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-cyber-purple);
 }
 
-/* ---- Animations ---- */
+/* ═══ Animations (Motion-Reduced for C-Suite) ═══ */
+@keyframes pulse-status {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bar-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 @keyframes ticker-scroll {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
-
-@keyframes fade-in-up {
-  0% { opacity: 0; transform: translateY(20px); }
-  100% { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes scan-line {
@@ -91,104 +104,73 @@ body {
   100% { transform: translateY(100vh); }
 }
 
-@keyframes typewriter-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-@keyframes radial-fill {
-  0% { stroke-dashoffset: 283; }
-  100% { stroke-dashoffset: 0; }
-}
-
-@keyframes float-ambient {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-6px); }
-}
-
-@keyframes glitch-x {
-  0%,100% { transform: translateX(0); }
-  25% { transform: translateX(-2px); }
-  75% { transform: translateX(2px); }
-}
-
-@keyframes sentinel-soundwave {
-  0% { height: 4px; }
-  25% { height: 12px; }
-  50% { height: 6px; }
-  75% { height: 16px; }
-  100% { height: 8px; }
-}
-
-@keyframes slide-in-right {
-  0% { opacity: 0; transform: translateX(20px); }
-  100% { opacity: 1; transform: translateX(0); }
-}
-
+.animate-pulse-status { animation: pulse-status 2.5s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
+.animate-bar-grow { animation: bar-grow 0.6s ease-out forwards; transform-origin: bottom; }
+.animate-slide-in { animation: slide-in-right 0.35s ease-out forwards; }
 .animate-ticker { animation: ticker-scroll 40s linear infinite; }
-.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
-.animate-fade-in-up { animation: fade-in-up 0.6s ease-out forwards; }
 .animate-scan-line { animation: scan-line 8s linear infinite; }
-.animate-typewriter-blink { animation: typewriter-blink 1s step-end infinite; }
-.animate-float { animation: float-ambient 4s ease-in-out infinite; }
-.animate-glitch { animation: glitch-x 0.3s ease-in-out; }
-.animate-slide-in-right { animation: slide-in-right 0.4s ease-out forwards; }
 
-/* ---- Glass Panel ---- */
+/* ═══ Glass Panels ═══ */
 .glass-panel {
   background: var(--color-panel-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--color-obsidian-border);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 .glass-panel-elevated {
-  background: rgba(20, 20, 20, 0.8);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: rgba(14, 14, 14, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--color-obsidian-border);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
 }
 
-/* ---- Glow Effects (Rose Rocket Lime) ---- */
+/* ═══ Glow Effects ═══ */
 .glow-purple {
-  box-shadow: 0 0 20px rgba(196,214,0,0.3), inset 0 0 20px rgba(196,214,0,0.05);
+  box-shadow: 0 0 20px rgba(188, 19, 254, 0.25), inset 0 0 20px rgba(188, 19, 254, 0.04);
 }
 
 .glow-gold {
-  box-shadow: 0 0 20px rgba(255,255,255,0.2), inset 0 0 20px rgba(255,255,255,0.05);
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.2), inset 0 0 20px rgba(255, 215, 0, 0.04);
+}
+
+.glow-danger {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3), inset 0 0 20px rgba(239, 68, 68, 0.05);
 }
 
 .text-glow-purple {
-  text-shadow: 0 0 20px rgba(196,214,0,0.5);
+  text-shadow: 0 0 16px rgba(188, 19, 254, 0.5);
 }
 
 .text-glow-gold {
-  text-shadow: 0 0 20px rgba(255,255,255,0.3);
+  text-shadow: 0 0 16px rgba(255, 215, 0, 0.4);
 }
 
-/* ---- Terminal ---- */
-.terminal-input:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(196,214,0,0.4);
-}
-
-/* ---- Radial Progress ---- */
-.radial-progress-bg {
+/* ═══ Radial Progress ═══ */
+.radial-bg {
   stroke: var(--color-obsidian-border);
 }
-.radial-progress-fill {
-  stroke: var(--color-amber-gold);
-  transition: stroke-dashoffset 1s ease-in-out;
+.radial-fill {
+  stroke: var(--color-cyber-purple);
+  transition: stroke-dashoffset 1.2s ease-in-out;
 }
 
-/* ---- JSON Syntax Highlighting (Split-Screen Demo) ---- */
-.json-key { color: #C4D600; }
-.json-string { color: #A1A1AA; }
-.json-number { color: #60A5FA; }
-.json-boolean { color: #C4D600; }
-.json-null { color: #555555; }
-.json-bracket { color: #555555; }
-.json-colon { color: #3A3A3A; }
+/* ═══ Attack Mode Override ═══ */
+.attack-active .glass-panel-elevated {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.attack-active .status-ribbon {
+  background-color: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* ═══ Voice Soundwave Visualizer ═══ */
+@keyframes sentinel-soundwave {
+  0% { height: 4px; }
+  50% { height: 14px; }
+  100% { height: 6px; }
+}

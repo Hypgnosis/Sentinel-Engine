@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  SENTINEL ENGINE v4.1 — Cloud Monitoring Alert Policies + SLOs
+#  SENTINEL ENGINE v5.0 — Cloud Monitoring Alert Policies + SLOs
 #  Configures production alerting for the ETL pipeline and inference.
 #
 #  Alert Policies:
@@ -27,7 +27,7 @@ PROJECT_ID="ha-sentinel-core-v21"
 ALERT_EMAIL="${ALERT_EMAIL:-engineering@high-archy.tech}"
 
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  SENTINEL ENGINE v4.1 — Cloud Monitoring & SLOs         ║"
+echo "║  SENTINEL ENGINE v5.0 — Cloud Monitoring & SLOs         ║"
 echo "║  Project: ${PROJECT_ID}                              ║"
 echo "║  Contact: ${ALERT_EMAIL}                                ║"
 echo "╚══════════════════════════════════════════════════════════╝"
@@ -208,19 +208,52 @@ gcloud alpha monitoring policies create \
   --policy-from-file=/tmp/sentinel-slo-latency.json \
   --project="${PROJECT_ID}" 2>/dev/null || echo "  Alert policy may already exist."
 
+# ── Step 6: Alert Policy — Boot Guard Failure ──
+echo "[6/6] Creating alert: Boot Guard Failure..."
+cat > /tmp/sentinel-alert-boot.json <<EOF
+{
+  "displayName": "Sentinel Engine — Boot Guard Failure",
+  "documentation": {
+    "content": "## CRITICAL: Boot Guard Failure\n\nThe Sentinel Engine failed to initialize due to missing or invalid secrets in the global scope.\n\n**Impact:** The container has physically halted and is not serving traffic.\n\n**Runbook:**\n1. Check Cloud Function logs for \`[FATAL_SECURITY_BOOT_FAILURE]\`.\n2. Verify that \`DB_PASSWORD\`, \`SENTINEL_ENCRYPTION_KEY\`, and \`SENTINEL_SIGNING_KEY\` are correctly mapped from Secret Manager.\n3. Ensure the Service Account has \`roles/secretmanager.secretAccessor\` on the required secrets.",
+    "mimeType": "text/markdown"
+  },
+  "conditions": [
+    {
+      "displayName": "Boot Failure Log Detected",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_function\" AND resource.labels.function_name=\"sentinelInference\" AND textPayload:\"[FATAL_SECURITY_BOOT_FAILURE]\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "300s"
+    }
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": ["${CHANNEL_ID}"]
+}
+EOF
+
+gcloud alpha monitoring policies create \
+  --policy-from-file=/tmp/sentinel-alert-boot.json \
+  --project="${PROJECT_ID}" 2>/dev/null || echo "  Alert policy may already exist."
+
 # ── Summary ──
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  Monitoring Alerts & SLOs Configured"
+echo "  Monitoring Alerts & SLOs Configured (V5.0)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 echo "  ALERT POLICIES:"
 echo "    1. ETL Job Failure       → Immediate alert on failed execution"
-echo "    2. ETL Timeout Warning   → Alert when execution > 240s"
+│   2. ETL Timeout Warning   → Alert when execution > 240s"
+│   3. Boot Guard Failure    → CRITICAL: Alert on [FATAL_SECURITY_BOOT_FAILURE]"
 echo ""
 echo "  SERVICE LEVEL OBJECTIVES:"
-echo "    3. Data Staleness SLO    → Alert when no successful ETL in 60 min"
-echo "    4. Inference Latency SLO → Alert when P95 > 4000ms"
+echo "    4. Data Staleness SLO    → Alert when no successful ETL in 60 min"
+echo "    5. Inference Latency SLO → Alert when P95 > 4000ms"
 echo ""
 echo "  Notification: ${ALERT_EMAIL}"
 echo ""

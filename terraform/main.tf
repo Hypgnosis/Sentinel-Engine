@@ -102,6 +102,7 @@ resource "google_project_service" "apis" {
     "iam.googleapis.com",
     "sqladmin.googleapis.com",
     "servicenetworking.googleapis.com",
+    "compute.googleapis.com",
   ])
 
   service            = each.value
@@ -172,15 +173,28 @@ resource "google_project_iam_member" "inference_cloudsql_client" {
   member  = "serviceAccount:${google_service_account.inference_sa.email}"
 }
 
+# ─────────────────────────────────────────────────────
+#  NETWORKING — Private Service Access (VPC Peering)
+# ─────────────────────────────────────────────────────
+
+resource "google_compute_global_address" "private_ip_address" {
+  name          = "sentinel-private-ip-address"
+  purpose       = "VPC_PEERING"
+  address_type  = "INTERNAL"
+  prefix_length = 16
+  network       = "projects/${var.project_id}/global/networks/default"
+}
+
+resource "google_service_networking_connection" "private_vpc_connection" {
+  network                 = "projects/${var.project_id}/global/networks/default"
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_ip_address.name]
+
+  depends_on = [google_project_service.apis]
+}
+
 # ═══════════════════════════════════════════════════════════════════
 #  CLOUD SQL — PRISTINE RESERVOIR (V5.2 Sub-Zero Latency)
-#
-#  GCP-native Postgres 15 with pgvector. Private IP only.
-#  Eliminates Supabase cross-cloud peering latency (~80-150ms).
-#  Target: <10ms vector search via Google private backbone.
-#
-#  Staging:    db-f1-micro (shared vCPU, 614MB RAM)
-#  Production: db-custom-16-61440 (16 vCPU, 60GB RAM)
 # ═══════════════════════════════════════════════════════════════════
 
 resource "google_sql_database_instance" "pristine_reservoir" {
@@ -205,18 +219,9 @@ resource "google_sql_database_instance" "pristine_reservoir" {
       private_network = "projects/${var.project_id}/global/networks/default"
     }
 
-    # pgvector extension
-    database_flags {
-      name  = "cloudsql.enable_pgvector"
-      value = "on"
-    }
-
-    # Connection limits
-    database_flags {
-      name  = "max_connections"
-      value = var.environment == "production" ? "500" : "100"
-    }
-
+    # Removed cloudsql.enable_pgvector flag as it's best enabled 
+    # via CREATE EXTENSION vector; in the migration script.
+    
     # Automated backups + PITR
     backup_configuration {
       enabled                        = true
@@ -254,8 +259,8 @@ resource "google_sql_database_instance" "pristine_reservoir" {
   deletion_protection = var.environment == "production" ? true : false
 
   depends_on = [
-    google_project_service.apis["sqladmin.googleapis.com"],
-    google_project_service.apis["servicenetworking.googleapis.com"],
+    google_project_service.apis,
+    google_service_networking_connection.private_vpc_connection
   ]
 }
 
