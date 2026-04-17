@@ -16,7 +16,7 @@
 
 const { getSql } = require('./db');
 
-const SIDECAR_MODEL = 'gemini-2.0-flash-lite';
+const SIDECAR_MODEL = 'gemini-2.5-flash';
 
 // ─────────────────────────────────────────────────────
 //  ADVERSARIAL PROMPT TEMPLATE
@@ -166,10 +166,11 @@ async function launchVerificationSidecar({ genaiClient, requestId, tenantId, nar
         maxOutputTokens: 512,
         topK: 5,
         topP: 0.3,
+        thinkingConfig: { thinkingBudget: 0 },
       },
     });
 
-    let cleanedText = result.text.replace(/```(json)?/gi, '').trim();
+    let cleanedText = (result.text || '').replace(/```(json)?/gi, '').trim();
     cleanedText = cleanedText.replace(/,\s*([\]}])/g, '$1');
     const verdict = JSON.parse(cleanedText);
 

@@ -133,7 +133,8 @@ const firestore = new Firestore({ projectId: GCP_PROJECT_ID });
 const secretClient = new SecretManagerServiceClient();
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
-let ai = null;
+let _genAI = null;   // API Key client — generation + classification
+let _embedAI = null; // Vertex AI client — embeddings only
 const _secretCache = {};
 
 // ─────────────────────────────────────────────────────
@@ -160,18 +161,48 @@ async function getSecret(secretName) {
 }
 
 /**
- * Get the Vertex AI client (lazy-init is acceptable here — not a security primitive).
+ * V5.2.2 DUAL-CLIENT ARCHITECTURE
+ * ────────────────────────────────
+ * The GCP project has Vertex AI access for EMBEDDINGS only.
+ * Generation models (gemini-2.5-flash) require the Gemini
+ * Developer API (API key mode).
+ *
+ * getGenAI()   → API Key client → generation, classification, verification
+ * getEmbedAI() → Vertex AI client → text-embedding-004 only
+ */
+
+/**
+ * Get the Gemini API Key client for generation.
  * @returns {GoogleGenAI}
  */
-function getAI() {
-  if (!ai) {
-    ai = new GoogleGenAI({
+function getGenAI() {
+  if (!_genAI) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.error('[FATAL] GEMINI_API_KEY not available. Generation will fail.');
+    }
+    _genAI = new GoogleGenAI({ apiKey });
+    console.log('[DUAL_CLIENT] Generation client initialized (API Key mode).');
+  }
+  return _genAI;
+}
+
+/**
+ * Get the Vertex AI client for embeddings.
+ * Uses ADC (Application Default Credentials), no API key needed.
+ * @returns {GoogleGenAI}
+ */
+function getEmbedAI() {
+  if (!_embedAI) {
+    _embedAI = new GoogleGenAI({
       vertexai: true,
       project: GCP_PROJECT_ID,
       location: GCP_REGION,
+      // Default API version (v1) — embeddings work on v1, NOT v1beta
     });
+    console.log('[DUAL_CLIENT] Embedding client initialized (Vertex AI mode).');
   }
-  return ai;
+  return _embedAI;
 }
 
 const ALLOWED_ORIGINS = [
@@ -207,8 +238,8 @@ const handleCORS = (req, res) => {
  * @param {string} tenantId
  * @returns {Promise<{contextPayload: string, resultCount: number, bqErrors?: string[]}>}
  */
-async function vectorSearchRetrieval(queryText, genaiClient, tenantId) {
-  const embeddingResponse = await genaiClient.models.embedContent({
+async function vectorSearchRetrieval(queryText, embedClient, tenantId) {
+  const embeddingResponse = await embedClient.models.embedContent({
     model: EMBEDDING_MODEL,
     contents: queryText,
     config: { taskType: 'RETRIEVAL_QUERY', outputDimensionality: EMBEDDING_DIM },
@@ -344,7 +375,7 @@ async function applyKillSwitch(context, requestId) {
  * @returns {string} Model ID
  */
 function selectModel(query, instanceConfig) {
-  return 'gemini-1.5-flash';
+  return 'gemini-2.5-flash';
 }
 
 // ─────────────────────────────────────────────────────
@@ -438,7 +469,7 @@ function pristineRace(pgPromise, bqPromise) {
 //  SHADOW CLASSIFIER — Pessimistic Sensitivity Gate (V5.2)
 // ─────────────────────────────────────────────────────
 
-const SHADOW_CLASSIFIER_MODEL = 'gemini-2.0-flash-lite';
+const SHADOW_CLASSIFIER_MODEL = 'gemini-2.5-flash';
 
 /**
  * Fires a 10-token prompt to classify query sensitivity BEFORE primary
@@ -463,11 +494,13 @@ async function classifyQuerySensitivity(genai, query) {
       contents: `Classify this query as exactly one of: SENSITIVE, PROCEDURAL, GENERAL.\nQuery: ${query}`,
       config: {
         temperature: 0.0,
-        maxOutputTokens: 10,
+        maxOutputTokens: 50,
         topK: 1,
+        thinkingConfig: { thinkingBudget: 0 },
       },
     });
-    const classification = result.text.trim().toUpperCase();
+    const rawText = result.text;
+    const classification = (rawText || '').trim().toUpperCase();
     // Only accept exact, unambiguous matches
     if (classification === 'PROCEDURAL') return 'PROCEDURAL';
     if (classification === 'GENERAL') return 'GENERAL';
@@ -500,7 +533,8 @@ async function handleSentinelInference(req, res) {
   if (handleCORS(req, res)) return;
 
   try {
-    const genai = getAI();
+    const genai = getGenAI();      // API Key client — generation + classification
+    const embedai = getEmbedAI();  // Vertex AI client — embeddings only
     trace.init = Date.now() - t0;
 
     // ═══ PHASE 1: PEP Gate — Zero-Trust Auth ═══
@@ -545,7 +579,7 @@ async function handleSentinelInference(req, res) {
 
       // Step 2: Embedding
       const tEmbed0 = Date.now();
-      const embResult = await genai.models.embedContent({
+      const embResult = await embedai.models.embedContent({
         model: EMBEDDING_MODEL,
         contents: query,
         config: { taskType: 'RETRIEVAL_QUERY', outputDimensionality: EMBEDDING_DIM },
@@ -576,7 +610,7 @@ async function handleSentinelInference(req, res) {
         }
       } else {
         // FULL_CASCADE: Pristine Priority Race (150ms Postgres window)
-        const bqPromise = vectorSearchRetrieval(query, genai, tenantId)
+        const bqPromise = vectorSearchRetrieval(query, embedai, tenantId)
           .then(res => ({ tier: 'BQ', res }))
           .catch(err => { console.error('[RAG_CASCADE] BigQuery failed:', err.message); return { tier: 'BQ', res: null }; });
 
@@ -670,7 +704,7 @@ async function handleSentinelInference(req, res) {
         });
 
         try {
-          let cleanedText = result.text.replace(/```(json)?/gi, '').trim();
+          let cleanedText = (result.text || '').replace(/```(json)?/gi, '').trim();
           cleanedText = cleanedText.replace(/,\s*([\]}])/g, '$1');
           const parsed = JSON.parse(cleanedText);
 
@@ -799,7 +833,7 @@ async function handleSentinelInference(req, res) {
 
     if (contextPayload && data.narrative) {
       const sidecarPayload = {
-        genaiClient: getAI(),
+        genaiClient: getGenAI(),
         requestId,
         tenantId,
         narrative: data.narrative,
@@ -826,7 +860,7 @@ async function handleSentinelInference(req, res) {
 
     return res.status(200).json({
       status: 'SUCCESS',
-      model: modelId || 'gemini-1.5-flash',
+      model: modelId || 'gemini-2.5-flash',
       timestamp: new Date().toISOString(),
       data,
       infrastructure: `Sentinel v5.2 [${dataAuthority}]`,
