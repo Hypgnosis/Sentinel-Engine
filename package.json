@@ -1,7 +1,7 @@
 {
   "name": "sentinel-engine",
   "private": true,
-  "version": "5.4.0-hitl",
+  "version": "5.5.0-Sovereign",
   "type": "module",
   "scripts": {
     "dev": "vite",

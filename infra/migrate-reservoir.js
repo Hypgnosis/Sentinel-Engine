@@ -156,7 +156,66 @@ async function createSchema(target) {
     )
   `);
 
-  console.log('  ✓ All 5 tables created');
+  await target.unsafe(`
+    CREATE TABLE IF NOT EXISTS standing_authority_matrix (
+      authority_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('SOC_TIER_1','SOC_TIER_2','CHIEF_ENGINEER','CISO')),
+      blast_radius TEXT NOT NULL CHECK (blast_radius IN ('LOCAL','REGIONAL','GLOBAL')),
+      escalation_tier INTEGER NOT NULL CHECK (escalation_tier BETWEEN 1 AND 4),
+      contact_channel TEXT, webhook_url TEXT, is_active BOOLEAN DEFAULT TRUE,
+      tenant_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await target.unsafe(`
+    CREATE TABLE IF NOT EXISTS evidence_locker (
+      locker_id TEXT PRIMARY KEY, request_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK (event_type IN (
+        'PROSECUTOR_REJECTION','ESCALATION_CREATED','HUMAN_OVERRIDE',
+        'HUMAN_CONFIRM_REJECTION','COACHING_ANNOTATION',
+        'ROLLBACK_TRIGGERED','PRISTINE_CHECKPOINT','AUTHORITY_MODIFIED',
+        'GOVERNANCE_FINDING', 'LEGIBILITY_RECORD'
+      )),
+      responsible_authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+      payload JSONB NOT NULL, signature TEXT NOT NULL, previous_signature TEXT,
+      tenant_id TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await target.unsafe(`
+    CREATE TABLE IF NOT EXISTS escalation_requests (
+      escalation_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
+      authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN (
+        'PENDING', 'OVERRIDE_RELEASED', 'CONFIRMED_BLOCKED', 'TTL_EXPIRED', 'MONOTONIC_REDUCTION_APPLIED'
+      )),
+      impact_level TEXT NOT NULL DEFAULT 'HIGH_IMPACT' CHECK (impact_level IN (
+        'HIGH_IMPACT', 'STANDARD', 'LOW', 'UTILITY_CRITICAL'
+      )),
+      blast_radius TEXT NOT NULL DEFAULT 'LOCAL', evidence_fragment JSONB NOT NULL,
+      resolution_payload JSONB, coaching_annotation TEXT, ttl_expires_at TIMESTAMPTZ NOT NULL,
+      resolved_at TIMESTAMPTZ, resolved_by TEXT, webauthn_assertion_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await target.unsafe(`
+    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+      credential_id TEXT PRIMARY KEY, authority_id TEXT NOT NULL REFERENCES standing_authority_matrix(authority_id),
+      public_key BYTEA NOT NULL, counter INTEGER NOT NULL DEFAULT 0,
+      transports TEXT[], aaguid TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await target.unsafe(`
+    INSERT INTO standing_authority_matrix (authority_id, name, role, blast_radius, escalation_tier, is_active)
+    VALUES 
+      ('SOC-TIER-1-DEFAULT', 'SOC Tier 1', 'SOC_TIER_1', 'LOCAL', 1, true),
+      ('CISO-DEFAULT', 'Chief Information Security Officer', 'CISO', 'GLOBAL', 4, true)
+    ON CONFLICT (authority_id) DO NOTHING;
+  `);
+
+  console.log('  ✓ All core database schemas and seed data created');
 }
 
 // ─── Step 1: Migrate data table by table ─────────────
@@ -232,6 +291,18 @@ async function createIndexes(target) {
     'CREATE INDEX IF NOT EXISTS idx_port_tenant ON port_congestion(tenant_id)',
     'CREATE INDEX IF NOT EXISTS idx_choke_tenant ON maritime_chokepoints(tenant_id)',
     'CREATE INDEX IF NOT EXISTS idx_risk_tenant ON risk_matrix(tenant_id)',
+    'CREATE INDEX IF NOT EXISTS idx_evidence_request ON evidence_locker(request_id)',
+    'CREATE INDEX IF NOT EXISTS idx_evidence_tenant ON evidence_locker(tenant_id)',
+    'CREATE INDEX IF NOT EXISTS idx_evidence_type ON evidence_locker(event_type)',
+    'CREATE INDEX IF NOT EXISTS idx_evidence_created ON evidence_locker(created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_escalation_status ON escalation_requests(status)',
+    'CREATE INDEX IF NOT EXISTS idx_escalation_tenant ON escalation_requests(tenant_id)',
+    'CREATE INDEX IF NOT EXISTS idx_escalation_ttl ON escalation_requests(ttl_expires_at) WHERE status = \'PENDING\'',
+    'CREATE INDEX IF NOT EXISTS idx_authority_active ON standing_authority_matrix(is_active) WHERE is_active = TRUE',
+    'CREATE INDEX IF NOT EXISTS idx_authority_blast ON standing_authority_matrix(blast_radius, escalation_tier)',
+    'CREATE INDEX IF NOT EXISTS idx_webauthn_authority ON webauthn_credentials(authority_id)',
+    'CREATE INDEX IF NOT EXISTS idx_evidence_finding_action ON evidence_locker USING GIN ((payload -> \'finding\' -> \'action\'))',
+    'CREATE INDEX IF NOT EXISTS idx_evidence_finding_trigger ON evidence_locker USING GIN ((payload -> \'finding\' -> \'trigger\'))',
   ];
 
   for (const ddl of indexes) {

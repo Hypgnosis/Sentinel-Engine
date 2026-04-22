@@ -47,9 +47,8 @@ const admin = require('firebase-admin');
 const REQUIRED_SECRETS = {
   DATABASE_URL: process.env.DATABASE_URL,
   INSTANCE_CONNECTION_NAME: process.env.INSTANCE_CONNECTION_NAME,
-  SENTINEL_ENCRYPTION_KEY: process.env.SENTINEL_ENCRYPTION_KEY,
-  SENTINEL_SIGNING_KEY: process.env.SENTINEL_SIGNING_KEY,
   SYSTEM_PEPPER: process.env.SYSTEM_PEPPER,
+  SENTINEL_ENCRYPTION_KEY: process.env.SENTINEL_ENCRYPTION_KEY,
 };
 
 for (const [name, value] of Object.entries(REQUIRED_SECRETS)) {
@@ -60,18 +59,36 @@ for (const [name, value] of Object.entries(REQUIRED_SECRETS)) {
 }
 
 // SecurityManager: Initialized at boot — NOT lazily inside request handlers.
-const { SecurityManager } = require('./security-manager');
+const { SecurityManager, AsymmetricKmsProvider } = require('./security-manager');
 
 /** @type {import('./security-manager').SecurityManager} */
 let _securityManager;
+
+// Create a vault helper for the asymmetric boot
+const vault = {
+  getSecret: async (secretName) => {
+    const client = new SecretManagerServiceClient();
+    const projectId = process.env.GCP_PROJECT_ID || process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'ha-sentinel-core-v21';
+    const [version] = await client.accessSecretVersion({
+      name: `projects/${projectId}/secrets/${secretName}/versions/latest`,
+    });
+    return version.payload.data.toString('utf8');
+  }
+};
+
+// Initialize via top-level await for Asymmetric Boot
 try {
-  _securityManager = SecurityManager.create('software');
+  _securityManager = SecurityManager.create('asymmetric', {
+    privateKeyPem: await vault.getSecret('SENTINEL_PRIVATE_KEY'),
+    publicKeyPem: await vault.getSecret('SENTINEL_PUBLIC_KEY'),
+    encryptionKey: process.env.SENTINEL_ENCRYPTION_KEY
+  });
 } catch (err) {
   console.error(`[FATAL_SECURITY_BOOT_FAILURE] SecurityManager.create() failed: ${err.message}`);
   process.exit(1);
 }
 
-console.log('[BOOT_GUARD] All secrets verified. SecurityManager initialized. Container is SECURE.');
+console.log('[BOOT_GUARD] All secrets verified. SecurityManager initialized with ASYMMETRIC mode. Container is SECURE.');
 
 // ─────────────────────────────────────────────────────
 //  MODULE IMPORTS (post-boot-guard)
@@ -1143,114 +1160,7 @@ async function handleSentinelEscalation(req, res) {
       return res.status(400).json({ error: 'action is required' });
     }
 
-    // ── Admin-only bypass (GCP identity token auth, no Firebase PEP) ──
-    if (action === 'migrate' || action === 'seed') {
-      let sqlConn = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        try {
-          sqlConn = getSql();
-          await sqlConn`SELECT 1`; // warmup probe
-          break;
-        } catch (warmupErr) {
-          console.log(`[BYPASS] Connection warmup attempt ${attempt + 1}/5: ${warmupErr.message}`);
-          if (attempt < 4) await new Promise(r => setTimeout(r, 2000));
-          else return res.status(503).json({ error: 'Database unreachable after 5 warmup attempts', detail: warmupErr.message });
-        }
-      }
-
-      if (action === 'seed') {
-        try {
-          await sqlConn`
-            INSERT INTO standing_authority_matrix (authority_id, name, role, blast_radius, escalation_tier, is_active)
-            VALUES 
-              ('SOC-TIER-1-DEFAULT', 'SOC Tier 1', 'SOC_TIER_1', 'LOCAL', 1, true),
-              ('CISO-DEFAULT', 'Chief Information Security Officer', 'CISO', 'GLOBAL', 4, true)
-            ON CONFLICT (authority_id) DO NOTHING;
-          `;
-          return res.status(200).json({ status: 'SEED_COMPLETE' });
-        } catch (seedErr) {
-          return res.status(500).json({ status: 'SEED_ERROR', detail: seedErr.message });
-        }
-      }
-      const migrationStatements = [
-          `CREATE TABLE IF NOT EXISTS standing_authority_matrix (
-            authority_id TEXT PRIMARY KEY, name TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('SOC_TIER_1','SOC_TIER_2','CHIEF_ENGINEER','CISO')),
-            blast_radius TEXT NOT NULL CHECK (blast_radius IN ('LOCAL','REGIONAL','GLOBAL')),
-            escalation_tier INTEGER NOT NULL CHECK (escalation_tier BETWEEN 1 AND 4),
-            contact_channel TEXT, webhook_url TEXT, is_active BOOLEAN DEFAULT TRUE,
-            tenant_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
-          )`,
-          `CREATE TABLE IF NOT EXISTS evidence_locker (
-            locker_id TEXT PRIMARY KEY, request_id TEXT NOT NULL,
-            event_type TEXT NOT NULL CHECK (event_type IN (
-              'PROSECUTOR_REJECTION','ESCALATION_CREATED','HUMAN_OVERRIDE',
-              'HUMAN_CONFIRM_REJECTION','COACHING_ANNOTATION',
-              'ROLLBACK_TRIGGERED','PRISTINE_CHECKPOINT','AUTHORITY_MODIFIED'
-            )),
-            responsible_authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
-            payload JSONB NOT NULL, signature TEXT NOT NULL, previous_signature TEXT,
-            tenant_id TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
-          )`,
-          `CREATE TABLE IF NOT EXISTS escalation_requests (
-            escalation_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
-            authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
-            status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','OVERRIDE_RELEASED','CONFIRMED_BLOCKED','TTL_EXPIRED')),
-            impact_level TEXT NOT NULL DEFAULT 'HIGH_IMPACT' CHECK (impact_level IN ('HIGH_IMPACT','STANDARD','LOW')),
-            blast_radius TEXT NOT NULL DEFAULT 'LOCAL', evidence_fragment JSONB NOT NULL,
-            resolution_payload JSONB, coaching_annotation TEXT, ttl_expires_at TIMESTAMPTZ NOT NULL,
-            resolved_at TIMESTAMPTZ, resolved_by TEXT, webauthn_assertion_id TEXT,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-          )`,
-          `CREATE TABLE IF NOT EXISTS webauthn_credentials (
-            credential_id TEXT PRIMARY KEY, authority_id TEXT NOT NULL REFERENCES standing_authority_matrix(authority_id),
-            public_key BYTEA NOT NULL, counter INTEGER NOT NULL DEFAULT 0,
-            transports TEXT[], aaguid TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
-          )`,
-          `ALTER TABLE verification_results ADD COLUMN IF NOT EXISTS escalation_id TEXT`,
-          `CREATE INDEX IF NOT EXISTS idx_evidence_request ON evidence_locker(request_id)`,
-          `CREATE INDEX IF NOT EXISTS idx_evidence_tenant ON evidence_locker(tenant_id)`,
-          `CREATE INDEX IF NOT EXISTS idx_evidence_type ON evidence_locker(event_type)`,
-          `CREATE INDEX IF NOT EXISTS idx_evidence_created ON evidence_locker(created_at DESC)`,
-          `CREATE INDEX IF NOT EXISTS idx_escalation_status ON escalation_requests(status)`,
-          `CREATE INDEX IF NOT EXISTS idx_escalation_tenant ON escalation_requests(tenant_id)`,
-          `CREATE INDEX IF NOT EXISTS idx_escalation_ttl ON escalation_requests(ttl_expires_at) WHERE status = 'PENDING'`,
-          `CREATE INDEX IF NOT EXISTS idx_authority_active ON standing_authority_matrix(is_active) WHERE is_active = TRUE`,
-          `CREATE INDEX IF NOT EXISTS idx_authority_blast ON standing_authority_matrix(blast_radius, escalation_tier)`,
-          `CREATE INDEX IF NOT EXISTS idx_webauthn_authority ON webauthn_credentials(authority_id)`,
-          `ALTER TABLE evidence_locker DROP CONSTRAINT IF EXISTS evidence_locker_event_type_check`,
-          `ALTER TABLE evidence_locker ADD CONSTRAINT evidence_locker_event_type_check CHECK (event_type IN (
-              'PROSECUTOR_REJECTION','ESCALATION_CREATED','HUMAN_OVERRIDE',
-              'HUMAN_CONFIRM_REJECTION','COACHING_ANNOTATION',
-              'ROLLBACK_TRIGGERED','PRISTINE_CHECKPOINT','AUTHORITY_MODIFIED',
-              'GOVERNANCE_FINDING', 'LEGIBILITY_RECORD'
-          ))`,
-          `ALTER TABLE escalation_requests DROP CONSTRAINT IF EXISTS escalation_requests_impact_level_check`,
-          `ALTER TABLE escalation_requests ADD CONSTRAINT escalation_requests_impact_level_check CHECK (impact_level IN (
-              'HIGH_IMPACT', 'STANDARD', 'LOW', 'UTILITY_CRITICAL'
-          ))`,
-          `ALTER TABLE escalation_requests DROP CONSTRAINT IF EXISTS escalation_requests_status_check`,
-          `ALTER TABLE escalation_requests ADD CONSTRAINT escalation_requests_status_check CHECK (status IN (
-              'PENDING', 'OVERRIDE_RELEASED', 'CONFIRMED_BLOCKED', 'TTL_EXPIRED', 'MONOTONIC_REDUCTION_APPLIED'
-          ))`,
-          `CREATE INDEX IF NOT EXISTS idx_evidence_finding_action ON evidence_locker USING GIN ((payload -> 'finding' -> 'action'))`,
-          `CREATE INDEX IF NOT EXISTS idx_evidence_finding_trigger ON evidence_locker USING GIN ((payload -> 'finding' -> 'trigger'))`,
-        ];
-        let applied = 0, migErrors = 0;
-        const migResults = [];
-        for (const stmt of migrationStatements) {
-          try {
-            await sqlConn.unsafe(stmt);
-            applied++;
-            const m = stmt.match(/(?:TABLE|INDEX|ALTER TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?(\S+)/i);
-            migResults.push({ ok: true, name: m ? m[1] : 'unknown' });
-          } catch (migErr) {
-            migErrors++;
-            migResults.push({ ok: false, error: migErr.message.substring(0, 150) });
-          }
-        }
-        return res.status(200).json({ status: 'MIGRATION_COMPLETE', applied, errors: migErrors, results: migResults, version: '5.4.0-hitl' });
-    }
+    // ── Admin-only bypass removed (Migrated to infra/migrate-reservoir.js) ──
 
     const ctx = await verifyPEP(req);
     const tenantId = ctx.tenantId;

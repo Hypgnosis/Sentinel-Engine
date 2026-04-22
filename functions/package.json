@@ -1,6 +1,6 @@
 {
   "name": "sentinel-engine-core",
-  "version": "5.5.0-sovereign",
+  "version": "5.5.0-Sovereign",
   "description": "Sentinel Engine — Conditional Execution Layer (Cloud Function, V5.5 Sovereign)",
   "main": "index.js",
   "engines": {

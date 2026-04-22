@@ -18,8 +18,8 @@
  * ═══════════════════════════════════════════════════════════
  */
 
-const MAX_CONTEXT_BYTES = 2048;
-const MIN_PROTECTED_ROWS = 3;
+const MAX_CONTEXT_BYTES = 16384;
+const MIN_PROTECTED_ROWS = 10;
 
 /**
  * Pack external adapter results into a context string with
