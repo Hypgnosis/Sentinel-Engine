@@ -23,6 +23,7 @@
 
 const crypto = require('crypto');
 const { getSql } = require('./db');
+const { exportAuditRecord } = require('./audit-log-exporter');
 
 // ─────────────────────────────────────────────────────
 //  EVENT TYPE REGISTRY
@@ -229,6 +230,24 @@ class EvidenceLocker {
         decision,
         message: `[EVIDENCE_LOCKER] Recorded Arbiter Decision (${decision}) for ${request_id}.`,
       }));
+
+      // ── KPMG 4.4: Stream signed record to BigQuery audit archive ──
+      // Fire-and-forget — BQ failure NEVER blocks the primary response.
+      exportAuditRecord({
+        request_id,
+        tenant_id:          legibility_record?.tenantId || null,
+        decision,
+        authority_unit_id,
+        contract_id:        contract_evaluated_id,
+        confidence:         legibility_record?.confidence ?? null,
+        classification:     legibility_record?.classification || null,
+        impact_level:       legibility_record?.impactLevel || null,
+        narrative:          legibility_record?.narrative || null,
+        legibility_record,
+        governance_finding,
+        signature,
+        data_authority:     legibility_record?.dataAuthority || null,
+      }).catch(() => { /* structured error logged inside exportAuditRecord */ });
 
       return { id: row.id };
     } catch (err) {
