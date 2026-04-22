@@ -46,11 +46,23 @@ const admin = require('firebase-admin');
 //  No lazy-loading. No graceful degradation. No security theatre.
 // ═══════════════════════════════════════════════════════
 
+// All 8 secrets injected by Cloud Functions deploy script must be
+// present at boot. There is no graceful degradation — a missing
+// secret means the container should not serve traffic at all.
 const REQUIRED_SECRETS = {
-  DATABASE_URL: process.env.DATABASE_URL,
-  INSTANCE_CONNECTION_NAME: process.env.INSTANCE_CONNECTION_NAME,
-  SYSTEM_PEPPER: process.env.SYSTEM_PEPPER,
-  SENTINEL_ENCRYPTION_KEY: process.env.SENTINEL_ENCRYPTION_KEY,
+  // ── Tier 1: Data Plane ──────────────────────────────────────
+  DATABASE_URL:              process.env.DATABASE_URL,
+  INSTANCE_CONNECTION_NAME:  process.env.INSTANCE_CONNECTION_NAME,
+  SYSTEM_PEPPER:             process.env.SYSTEM_PEPPER,
+  SENTINEL_ENCRYPTION_KEY:   process.env.SENTINEL_ENCRYPTION_KEY,
+  // ── Tier 2: AI Inference Plane ───────────────────────────────
+  GEMINI_API_KEY:            process.env.GEMINI_API_KEY,
+  // ── Tier 3: Asymmetric PKI (Evidence Locker integrity) ───────
+  // NOTE: SENTINEL_PRIVATE_KEY and SENTINEL_PUBLIC_KEY are loaded
+  // from Secret Manager at runtime by the AsymmetricKmsProvider,
+  // NOT injected as env vars, so they cannot be validated here.
+  // SENTINEL_SIGNING_KEY is used for symmetric ops in security-manager.
+  SENTINEL_SIGNING_KEY:      process.env.SENTINEL_SIGNING_KEY,
 };
 
 for (const [name, value] of Object.entries(REQUIRED_SECRETS)) {
@@ -59,6 +71,7 @@ for (const [name, value] of Object.entries(REQUIRED_SECRETS)) {
     process.exit(1);
   }
 }
+console.log(`[BOOT_GUARD] ${Object.keys(REQUIRED_SECRETS).length} environment secrets validated. PKI keys loaded via Secret Manager at runtime.`);
 
 // SecurityManager: Initialized at boot — NOT lazily inside request handlers.
 const { SecurityManager, AsymmetricKmsProvider } = require('./security-manager');
