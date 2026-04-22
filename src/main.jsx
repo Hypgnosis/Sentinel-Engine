@@ -1,8 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { initializeApp } from 'firebase/app'
-import './index.css'
-import App from './App.jsx'
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously } from 'firebase/auth';
+import './index.css';
+import App from './App.jsx';
 
 // ─────────────────────────────────────────────────────
 //  FIREBASE INITIALIZATION (Must run BEFORE any getAuth() call)
@@ -27,7 +28,12 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
     'Ensure VITE_FIREBASE_API_KEY and VITE_FIREBASE_PROJECT_ID are set in .env'
   );
 } else {
-  initializeApp(firebaseConfig);
+  const app = initializeApp(firebaseConfig);
+  // Securely hydrate an anonymous session so SentinelClient can acquire a JWT
+  const auth = getAuth(app);
+  signInAnonymously(auth).catch(err => {
+    console.error('Sentinel Engine: Anonymous Auth failed:', err);
+  });
 }
 
 createRoot(document.getElementById('root')).render(

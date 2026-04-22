@@ -145,7 +145,7 @@ async function generateSubModule(genaiClient, modelId, moduleName, context, quer
       },
     });
 
-    let cleanedText = result.text.replace(/```(json)?/gi, '').trim();
+    let cleanedText = (result.text || '').replace(/```(json)?/gi, '').trim();
     cleanedText = cleanedText.replace(/,\s*([\]}])/g, '$1');
     const parsed = JSON.parse(cleanedText);
 

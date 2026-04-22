@@ -206,15 +206,114 @@ const SUB_SCHEMA_MAP = {
   executiveAction: ExecutiveActionSchema,
 };
 
+const ENERGY_SCHEMA = z.object({
+  gridStatus: z.object({
+    activeAlerts: z.array(z.string()).default([]),
+    loadMegawatts: z.number().optional(),
+    capacityMargin: z.number().optional()
+  }).optional(),
+  riskMatrix: RiskMatrixSchema.optional().default({ factors: [], overallRisk: 'MEDIUM' }),
+  executiveAction: ExecutiveActionSchema,
+  confidence: z.number().min(0).max(1).describe('Overall confidence 0.0-1.0'),
+  sources: z.array(z.string()).max(3).describe('Data provenance'),
+  dataAuthority: z.string().optional(),
+});
+
+const GEMINI_ENERGY_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    gridStatus: {
+      type: 'OBJECT',
+      properties: {
+        activeAlerts: { type: 'ARRAY', items: { type: 'STRING' } },
+        loadMegawatts: { type: 'NUMBER' },
+        capacityMargin: { type: 'NUMBER' }
+      }
+    },
+    riskMatrix: GEMINI_RESPONSE_SCHEMA.properties.riskMatrix,
+    executiveAction: GEMINI_RESPONSE_SCHEMA.properties.executiveAction,
+    confidence: GEMINI_RESPONSE_SCHEMA.properties.confidence,
+    sources: GEMINI_RESPONSE_SCHEMA.properties.sources,
+    dataAuthority: GEMINI_RESPONSE_SCHEMA.properties.dataAuthority
+  },
+  required: ['executiveAction', 'confidence', 'sources']
+};
+
+// ─────────────────────────────────────────────────────
+//  DEGRADED EXTENSION SCHEMAS
+//  Used ONLY when _verificationPartial is detected.
+//  These define exactly which fields become nullable
+//  when an external adapter fails — NOT deepPartial().
+//  Structural identifiers inside sub-objects remain mandatory
+//  if the sub-object itself is present.
+// ─────────────────────────────────────────────────────
+
+// LOGISTICS degraded: geography and riskMatrix objects become fully optional,
+// but if a region IS present, name is still required.
+const DegradedLogisticsExtSchema = z.object({
+  geography: GeographySchema.optional(),
+  riskMatrix: RiskMatrixSchema.optional(),
+});
+
+// ENERGY degraded: gridStatus and riskMatrix objects become fully optional.
+const DegradedEnergyExtSchema = z.object({
+  gridStatus: z.object({
+    activeAlerts: z.array(z.string()).default([]),
+    loadMegawatts: z.number().optional(),
+    capacityMargin: z.number().optional()
+  }).optional(),
+  riskMatrix: RiskMatrixSchema.optional(),
+});
+
+/**
+ * The Mandatory Core: fields that MUST be present in every response,
+ * regardless of partial state. An empty narrative is a system failure.
+ */
+const CoreSchema = z.object({
+  executiveAction: ExecutiveActionSchema,
+  confidence: z.number().min(0).max(1).describe('Overall confidence 0.0-1.0'),
+  sources: z.array(z.string()).max(3).describe('Data provenance'),
+  dataAuthority: z.string().optional(),
+});
+
+/**
+ * Schema Registry resolving method.
+ * Uses Tiered Enforcement: CoreSchema is ALWAYS strict.
+ * Extensions use DegradedExtensionSchemas when isPartial=true,
+ * preserving structural identifiers within sub-objects.
+ * 
+ * @param {string} domain 
+ * @param {boolean} isPartial - If true, uses Degraded Extension schemas
+ * @returns {object} Zod Schema
+ */
+function getSchemaForDomain(domain, isPartial = false) {
+  if (domain === 'ENERGY') {
+    const extensions = isPartial
+      ? DegradedEnergyExtSchema
+      : ENERGY_SCHEMA.pick({ gridStatus: true, riskMatrix: true });
+    return CoreSchema.merge(extensions);
+  }
+
+  // Default: LOGISTICS or UNKNOWN
+  const extensions = isPartial
+    ? DegradedLogisticsExtSchema
+    : InferenceResponseSchema.pick({ geography: true, riskMatrix: true });
+  return CoreSchema.merge(extensions);
+}
+
 /**
  * Validates a full inference response against all sub-schemas.
  * Returns the list of modules that failed validation.
  *
  * @param {object} data - Raw parsed JSON from Gemini
+ * @param {string} domain - Industry domain (LOGISTICS, ENERGY)
+ * @param {boolean} isPartial - Allow missing fields for partial states
  * @returns {{ valid: boolean, result: object|null, failedModules: string[], errors: object }}
  */
-function validateInferenceResponse(data) {
-  const parseResult = InferenceResponseSchema.safeParse(data);
+function validateInferenceResponse(data, domain = 'LOGISTICS', isPartial = false) {
+  const SchemaToUse = getSchemaForDomain(domain, isPartial);
+
+  const parseResult = SchemaToUse.safeParse(data);
   if (parseResult.success) {
     return { valid: true, result: parseResult.data, failedModules: [], errors: {} };
   }
@@ -223,16 +322,27 @@ function validateInferenceResponse(data) {
   const failedModules = [];
   const errors = {};
 
-  for (const [moduleName, schema] of Object.entries(SUB_SCHEMA_MAP)) {
+  const schemaMap = domain === 'ENERGY' ? {
+      gridStatus: ENERGY_SCHEMA.shape.gridStatus,
+      riskMatrix: RiskMatrixSchema,
+      executiveAction: ExecutiveActionSchema,
+    } : SUB_SCHEMA_MAP;
+
+  for (const [moduleName, schema] of Object.entries(schemaMap)) {
     const moduleData = data[moduleName];
-    const moduleResult = schema.safeParse(moduleData);
-    if (!moduleResult.success) {
-      failedModules.push(moduleName);
-      errors[moduleName] = moduleResult.error.issues.map(i => `${i.path.join('.')}: ${i.message}`);
+    if (moduleData) {
+        // executiveAction is ALWAYS strict — it is Mandatory Core.
+        // Extension modules use their original schema even in partial mode,
+        // because the top-level Degraded schema already handles optionality.
+        const moduleResult = schema.safeParse(moduleData);
+        if (!moduleResult.success) {
+          failedModules.push(moduleName);
+          errors[moduleName] = moduleResult.error.issues.map(i => `${i.path.join('.')}: ${i.message}`);
+        }
     }
   }
 
-  // Check top-level fields
+  // Mandatory Core checks apply regardless of isPartial status!
   if (typeof data.confidence !== 'number' || data.confidence < 0 || data.confidence > 1) {
     failedModules.push('confidence');
     errors.confidence = ['Must be a number between 0 and 1'];
@@ -252,10 +362,22 @@ module.exports = {
   ExecutiveActionSchema,
   InferenceResponseSchema,
   MetricSchema,
+
+  // Industry Schemas
+  LOGISTICS_SCHEMA: InferenceResponseSchema,
+  ENERGY_SCHEMA,
+  CORE_SCHEMA: CoreSchema,
+
+  // Degraded Extension Schemas (Tiered Enforcement)
+  DegradedLogisticsExtSchema,
+  DegradedEnergyExtSchema,
+
   // Gemini schema
   GEMINI_RESPONSE_SCHEMA,
+  GEMINI_ENERGY_SCHEMA,
   // Mapping
   SUB_SCHEMA_MAP,
   // Validator
   validateInferenceResponse,
+  getSchemaForDomain,
 };

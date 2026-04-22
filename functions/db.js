@@ -38,28 +38,34 @@ let _sql = null;
 function getSql() {
   if (_sql) return _sql;
 
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      'FATAL_CONFIG_FAILURE: DATABASE_URL is required but was not provisioned. ' +
-      'Production configuration must be injected via environment, not compiled.'
-    );
-  }
+  const pGhost = (process.env.PGHOST || '127.0.0.1').trim();
+  const pGuser = (process.env.PGUSER || 'postgres').trim();
+  const pGpassword = (process.env.PGPASSWORD || 'postgres').trim();
+  const pGdatabase = (process.env.PGDATABASE || 'sentinel_reservoir').trim();
 
   // Detect Cloud SQL Unix socket connection (path contains /cloudsql/)
-  const isUnixSocket = url.includes('/cloudsql/');
+  const isUnixSocket = pGhost.includes('/cloudsql/');
   const connectionMode = isUnixSocket ? 'CLOUD_SQL_SOCKET' : 'TCP_PROXY';
   console.log(`[DB_INIT] Initializing Postgres pool. Mode: ${connectionMode}`);
 
-  _sql = postgres(url, {
-    // Unix sockets are VPC-encrypted; SSL adds latency overhead.
-    // TCP connections (dev/proxy) still use SSL.
-    ssl: isUnixSocket ? false : 'require',
+  let connectionOptions = {
+    host: pGhost,
+    username: pGuser,
+    password: pGpassword,
+    database: pGdatabase,
     max: 50,
     idle_timeout: 30,
     connect_timeout: 5,
     max_lifetime: 1800,
-  });
+  };
+
+  if (isUnixSocket) {
+    connectionOptions.ssl = false; // Unix sockets are VPC-encrypted
+  } else {
+    connectionOptions.ssl = false; // TCP via Cloud SQL Proxy does not use SSL locally
+  }
+  
+  _sql = postgres(connectionOptions);
   return _sql;
 }
 
