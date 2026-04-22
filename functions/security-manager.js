@@ -29,6 +29,7 @@
  */
 
 const crypto = require('crypto');
+const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 
 // ─────────────────────────────────────────────────────
 //  KEY PROVIDER INTERFACE (JSDoc-typed)
@@ -423,25 +424,41 @@ class SecurityManager {
   }
 
   /**
-   * PII Tokenization — TRUE ONE-WAY ANONYMIZATION (HMAC-SHA256)
-   *
-   * V5.0 SOVEREIGN MANDATE:
-   *   This method produces IRREVERSIBLE, deterministic hashes.
-   *   It uses crypto.createHmac('sha256', signingKey) directly.
-   *   It does NOT call encryptField() — AES is reversible and
-   *   constitutes "security theatre" for PII anonymization.
-   *
-   * Salted identifiers: SSNs, Credit Cards, and Subject IDs are
-   * converted to irreversible tokens: [HASHED_SSN:8a3f...],
-   * [HASHED_CC:b7e2...], [HASHED_ID:c9d0...].
-   *
-   * @param {string} text - Input text containing potential PII
-   * @param {string} [tenantId] - Tenant ID for per-tenant salt (prevents cross-tenant rainbow tables)
-   * @returns {Promise<string>} Text with PII replaced by HMAC tokens
+   * Asynchronously fetches the SYSTEM_PEPPER from GCP Secret Manager.
+   * Caches the value after the first retrieval.
+   * 
+   * @returns {Promise<string>}
+   */
+  async getHardenedPepper() {
+    if (this._pepperCache) return this._pepperCache;
+    
+    try {
+      const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
+      const client = new SecretManagerServiceClient();
+      const projectId = process.env.GCP_PROJECT_ID || process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'ha-sentinel-core-v21';
+      const [version] = await client.accessSecretVersion({
+        name: `projects/${projectId}/secrets/SYSTEM_PEPPER/versions/latest`,
+      });
+      this._pepperCache = version.payload.data.toString('utf8');
+      return this._pepperCache;
+    } catch (err) {
+      console.error('[SECURITY_MANAGER] Failed to fetch SYSTEM_PEPPER from Secret Manager. Failing back to process.env:', err.message);
+      return process.env.SYSTEM_PEPPER;
+    }
+  }
+
+  /**
+   * Securely tokenizes PII.
+   * 
+   * @param {string} text - Pristine text containing potential PII.
+   * @param {string} tenantId - The tenant ID for salt separation.
+   * @returns {Promise<string>} Tokenized string.
    */
   async tokenizePII(text, tenantId = null) {
     if (!text) return text;
     let result = text;
+
+    const pepper = await this.getHardenedPepper();
 
     /**
      * Produce a one-way HMAC-SHA256 hash of the given value.
@@ -466,12 +483,11 @@ class SecurityManager {
       // IKM: global signing key
       // Salt: SYSTEM_PEPPER (high-entropy, boot-validated)
       // Info: tenantId (domain separation per tenant)
-      const pepper = process.env.SYSTEM_PEPPER;
       const tenantInfo = tenantId || 'global';
       const derivedKey = crypto.hkdfSync(
         'sha256',
         this.#provider._sigKey,
-        Buffer.from(pepper, 'utf8'),
+        Buffer.from(pepper || '', 'utf8'),
         tenantInfo,
         32
       );

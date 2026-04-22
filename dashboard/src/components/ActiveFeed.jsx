@@ -253,6 +253,7 @@ export default function ActiveFeed({ endpointUrl = '/api/sentinelEscalation', te
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Active Governance Feed</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Zero-latency sovereign arbitration stream</p>
+          <p className="text-xs font-mono text-gray-400 dark:text-gray-500 mt-1">Engine Version: 5.5.0-Sovereign
         </div>
         <div className="flex items-center gap-2">
           <span className="relative flex h-3 w-3">

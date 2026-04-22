@@ -105,15 +105,20 @@ CREATE INDEX IF NOT EXISTS idx_risk_tenant ON risk_matrix(tenant_id);
 -- Maps blast-radius classifications to escalation tiers.
 -- Fulfills NIST CSF 2.0 GOVERN function: "Conditional Execution."
 CREATE TABLE IF NOT EXISTS standing_authority_matrix (
-    authority_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('SOC_TIER_1', 'SOC_TIER_2', 'CHIEF_ENGINEER', 'CISO')),
-    blast_radius TEXT NOT NULL CHECK (blast_radius IN ('LOCAL', 'REGIONAL', 'GLOBAL')),
-    escalation_tier INTEGER NOT NULL CHECK (escalation_tier BETWEEN 1 AND 4),
-    contact_channel TEXT,          -- slack webhook URL, email, etc.
-    webhook_url TEXT,              -- direct notification endpoint
+    unit_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    config JSONB NOT NULL,
+    grantor_id TEXT REFERENCES standing_authority_matrix(unit_id),
+    signature TEXT NOT NULL,
+    
+    -- Legacy columns maintained for V5.4 compatibility during migration
+    name TEXT,
+    role TEXT,
+    blast_radius TEXT,
+    escalation_tier INTEGER,
+    contact_channel TEXT,
+    webhook_url TEXT,
     is_active BOOLEAN DEFAULT TRUE,
-    tenant_id TEXT,                -- NULL = global authority
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -134,7 +139,7 @@ CREATE TABLE IF NOT EXISTS evidence_locker (
         'PRISTINE_CHECKPOINT',
         'AUTHORITY_MODIFIED'
     )),
-    responsible_authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+    responsible_authority_id TEXT REFERENCES standing_authority_matrix(unit_id),
     payload JSONB NOT NULL,
     signature TEXT NOT NULL,
     previous_signature TEXT,       -- chain link to prior entry
@@ -148,7 +153,7 @@ CREATE TABLE IF NOT EXISTS escalation_requests (
     escalation_id TEXT PRIMARY KEY,
     request_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
-    authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+    authority_id TEXT REFERENCES standing_authority_matrix(unit_id),
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN (
         'PENDING', 'OVERRIDE_RELEASED', 'CONFIRMED_BLOCKED', 'TTL_EXPIRED'
     )),
@@ -170,7 +175,7 @@ CREATE TABLE IF NOT EXISTS escalation_requests (
 -- No "bypass" mode exists in V5.4. Every override MUST be hardware-signed.
 CREATE TABLE IF NOT EXISTS webauthn_credentials (
     credential_id TEXT PRIMARY KEY,
-    authority_id TEXT NOT NULL REFERENCES standing_authority_matrix(authority_id),
+    authority_id TEXT NOT NULL REFERENCES standing_authority_matrix(unit_id),
     public_key BYTEA NOT NULL,
     counter INTEGER NOT NULL DEFAULT 0,
     transports TEXT[],
