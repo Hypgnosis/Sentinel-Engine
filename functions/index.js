@@ -1,21 +1,23 @@
 /**
  * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.5.0 "SOVEREIGN ABSOLUTE")
  * ═══════════════════════════════════════════════════════════
- * Google Cloud Function (Node.js 20) — Gen2
+ * Google Cloud Function (Node.js 22) — Gen2
  *
- * V5.4 CHANGES (HITL & Escalation Module):
- * ─────────────────────────────────────────
- * 1 — Human-in-the-Loop Escalation: HIGH_IMPACT Prosecutor
- *     rejections create JIT Approval Requests for Named Human
- *     Approvers via the Standing Authority Matrix.
- * 2 — Evidence Locker: Immutable, HMAC-signed chain-of-custody
- *     audit ledger (KPMG Principle 4.4).
- * 3 — WebAuthn/FIDO2: All privileged overrides require hardware
- *     key authentication. No bypass mode.
- * 4 — Shadow Classifier: impactLevel added as a separate
- *     classification dimension (prevents Sensitivity Inflation).
- * 5 — Pristine Checkpoints: Periodic data-state snapshots for
- *     Evidence-Led Rollback (data-plane, <4hr MTTR).
+ * V5.5.0 CHANGES (Sovereign Absolute):
+ * ─────────────────────────────────────
+ * 1 — AsymmetricKmsProvider: ECDSA P-256 replaces HMAC-SHA256.
+ *     Evidence Locker is now non-repudiable (PKI-signed).
+ * 2 — 16KB Priority-Based Context Packer: mergeContextSafely()
+ *     imported from adapters/context-packer. Internal vector rows
+ *     (P0) are protected; external adapter data (P1/P2) fills the
+ *     remaining 16,384-byte window. Zero meat-cleaver truncation.
+ * 3 — Promise Boot: Eliminated top-level await (ERR_REQUIRE_ASYNC).
+ *     SecurityManager initialized via SECURITY_BOOT_READY promise,
+ *     awaited in all handlers via ensureBoot().
+ * 4 — Classifier Fairness: Fallback classification defaults to
+ *     GENERAL (not SENSITIVE) to prevent Supervisor Fatigue.
+ *     Only explicit model outputs or confidence < 0.5 escalate.
+ * 5 — Node.js 22 Runtime: Migrated from nodejs20 (EOL 2026-04-30).
  *
  * Constraints:
  *   - Truth over Speed (P99 may increase for SENSITIVE queries)
@@ -868,10 +870,21 @@ OUTPUT FORMAT: Strict JSON matching the specified Response Schema.`;
       data.metrics = data.executiveAction?.metrics || data.metrics || [];
       data.dataAuthority = dataAuthority;
 
-      // Extract atomic classification dynamically from single-pass
-      queryClassification = data.executiveAction?.classification || (data.confidence >= 0.8 ? 'GENERAL' : 'SENSITIVE');
-      impactLevel = data.executiveAction?.classification === 'HIGH_IMPACT' ? 'HIGH_IMPACT' : 'STANDARD';
-      
+      // Extract atomic classification dynamically from single-pass.
+      // FAIRNESS RULE: Default to GENERAL, not SENSITIVE.
+      // Only escalate to SENSITIVE when the model explicitly says so,
+      // or when confidence is critically low (< 0.5). This prevents
+      // Supervisor Fatigue from malformed-but-benign responses.
+      const modelClass = data.executiveAction?.classification;
+      if (modelClass && ['SENSITIVE', 'GENERAL', 'HIGH_IMPACT', 'RESTRICTED'].includes(modelClass)) {
+        queryClassification = modelClass;
+      } else {
+        // No explicit classification from model: use confidence as a signal.
+        // < 0.5 → genuinely uncertain, escalate; >= 0.5 → treat as GENERAL.
+        queryClassification = data.confidence < 0.5 ? 'SENSITIVE' : 'GENERAL';
+      }
+      impactLevel = (modelClass === 'HIGH_IMPACT') ? 'HIGH_IMPACT' : 'STANDARD';
+
       trace.queryClass = queryClassification;
       trace.impactLevel = impactLevel;
 
