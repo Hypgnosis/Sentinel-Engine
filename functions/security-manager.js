@@ -158,14 +158,193 @@ class SoftwareKmsProvider {
 }
 
 // ─────────────────────────────────────────────────────
-//  HARDWARE HSM PROVIDER (V5.1 — Placeholder)
+//  ASYMMETRIC KMS PROVIDER (V5.4.1 — Evidence Locker PKI)
+//  ECDSA P-256 (default) or RSA-PSS for legally defensible signatures.
+//  Private key: sign only. Public key: verify only.
+//  Eliminates shared-secret HMAC single-point-of-failure.
+// ─────────────────────────────────────────────────────
+
+class AsymmetricKmsProvider {
+  /**
+   * @param {object} params
+   * @param {string} params.privateKeyPem - PEM-encoded private key (ECDSA or RSA)
+   * @param {string} params.publicKeyPem - PEM-encoded public key
+   * @param {string} params.encryptionKey - 32-byte hex key for AES-256-GCM (symmetric ops)
+   * @param {string} [params.keyId] - Key identifier for metadata
+   * @param {'ec'|'rsa'} [params.algorithm] - Key algorithm type
+   */
+  constructor({ privateKeyPem, publicKeyPem, encryptionKey, keyId = 'sentinel-asym-v541', algorithm = 'ec' }) {
+    if (!privateKeyPem || !publicKeyPem) {
+      throw new Error(
+        'AsymmetricKmsProvider: Both privateKeyPem and publicKeyPem are required. ' +
+        'Generate with: openssl ecparam -genkey -name prime256v1 -noout -out private.pem && ' +
+        'openssl ec -in private.pem -pubout -out public.pem'
+      );
+    }
+    if (!encryptionKey || encryptionKey.length < 32) {
+      throw new Error('AsymmetricKmsProvider: encryptionKey must be at least 32 characters (hex).');
+    }
+
+    this._privateKey = crypto.createPrivateKey(privateKeyPem);
+    this._publicKey = crypto.createPublicKey(publicKeyPem);
+    this._keyId = keyId;
+    this._algorithm = algorithm;
+    this._previousKeys = []; // Store rotated public keys for verification
+
+    // AES encryption key for symmetric operations (encrypt/decrypt fields)
+    const HKDF_SALT = Buffer.from('sentinel-engine-v541-asymmetric', 'utf8');
+    this._encKey = crypto.hkdfSync('sha256', encryptionKey, HKDF_SALT, 'aes-256-gcm-encryption', 32);
+
+    // Expose a dummy signingKey property for tokenizePII compatibility.
+    // tokenizePII uses HKDF from this key — it remains HMAC-based (one-way).
+    // Asymmetric signing is ONLY for Evidence Locker chain integrity.
+    this._sigKey = encryptionKey;
+  }
+
+  /**
+   * Encrypt plaintext using AES-256-GCM (symmetric — same as SoftwareKmsProvider).
+   * @param {Buffer} plaintext
+   * @returns {Promise<Buffer>}
+   */
+  async encrypt(plaintext) {
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', this._encKey, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return Buffer.concat([iv, authTag, encrypted]);
+  }
+
+  /**
+   * Decrypt ciphertext (iv + authTag + encrypted).
+   * @param {Buffer} ciphertext
+   * @returns {Promise<Buffer>}
+   */
+  async decrypt(ciphertext) {
+    if (ciphertext.length < 28) {
+      throw new Error('Ciphertext too short — minimum 28 bytes (iv + authTag).');
+    }
+    const iv = ciphertext.subarray(0, 12);
+    const authTag = ciphertext.subarray(12, 28);
+    const encrypted = ciphertext.subarray(28);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', this._encKey, iv);
+    decipher.setAuthTag(authTag);
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  }
+
+  /**
+   * Sign data using ECDSA P-256 (or RSA-PSS) with the PRIVATE key.
+   * Returns a base64-encoded DER signature.
+   *
+   * This is the critical difference from SoftwareKmsProvider:
+   * Only the holder of the private key can produce valid signatures.
+   * A compromised system admin with database access CANNOT forge entries
+   * unless they also possess the private key (which lives in HSM/KMS).
+   *
+   * @param {Buffer} data
+   * @returns {Promise<string>} Base64-encoded signature
+   */
+  async sign(data) {
+    const signature = crypto.sign(
+      this._algorithm === 'rsa' ? 'SHA256' : null,
+      data,
+      {
+        key: this._privateKey,
+        ...(this._algorithm === 'ec' ? { dsaEncoding: 'ieee-p1363' } : {}),
+      }
+    );
+    return signature.toString('base64');
+  }
+
+  /**
+   * Verify data against a signature using the PUBLIC key.
+   * Tries the active public key first, then falls back to previously rotated keys.
+   * @param {Buffer} data
+   * @param {string} signature - Base64-encoded signature
+   * @returns {Promise<boolean>}
+   */
+  async verify(data, signature) {
+    const tryVerify = (key) => {
+      try {
+        return crypto.verify(
+          this._algorithm === 'rsa' ? 'SHA256' : null,
+          data,
+          {
+            key: key,
+            ...(this._algorithm === 'ec' ? { dsaEncoding: 'ieee-p1363' } : {}),
+          },
+          Buffer.from(signature, 'base64')
+        );
+      } catch (err) {
+        return false;
+      }
+    };
+
+    // Try current active key
+    if (tryVerify(this._publicKey)) {
+      return true;
+    }
+
+    // Try archived keys
+    for (const oldKey of this._previousKeys) {
+      if (tryVerify(oldKey.publicKey)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Automates periodic rotation of AsymmetricKmsProvider keys.
+   * Archives the current public key for verification of old evidence,
+   * and generates a new active ECDSA-P256 key pair.
+   */
+  rotateKeys() {
+    if (this._algorithm !== 'ec') {
+      throw new Error('Automated key rotation currently only supported for ECDSA (ec) algorithm.');
+    }
+
+    // Archive current key
+    this._previousKeys.push({
+      publicKey: this._publicKey,
+      keyId: this._keyId
+    });
+
+    // Generate new ECDSA P-256 key pair
+    const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', {
+      namedCurve: 'prime256v1'
+    });
+
+    this._privateKey = privateKey;
+    this._publicKey = publicKey;
+    this._keyId = `sentinel-asym-rotated-${Date.now()}`;
+
+    console.log(`[KMS] Asymmetric keys rotated successfully. New Key ID: ${this._keyId}. Archived keys count: ${this._previousKeys.length}`);
+    return this._keyId;
+  }
+
+  /**
+   * Get metadata about the asymmetric key configuration.
+   * @returns {Promise<{keyId: string, algorithm: string, provider: string}>}
+   */
+  async getKeyMetadata() {
+    return {
+      keyId: this._keyId,
+      algorithm: this._algorithm === 'ec' ? 'ECDSA-P256' : 'RSA-PSS-SHA256',
+      provider: 'ASYMMETRIC_KMS',
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────
+//  HARDWARE HSM PROVIDER (V5.1 — Placeholder for GCP Cloud HSM)
 // ─────────────────────────────────────────────────────
 
 class HardwareHsmProvider {
   constructor() {
     throw new Error(
       'HardwareHsmProvider is reserved for V5.1 "Sovereign HSM" release. ' +
-      'Use SoftwareKmsProvider for V5.0.'
+      'Use SoftwareKmsProvider or AsymmetricKmsProvider for V5.0/V5.4.'
     );
   }
 }
@@ -230,6 +409,17 @@ class SecurityManager {
   async verifyPayload(payload, signature) {
     const data = Buffer.from(JSON.stringify(payload), 'utf8');
     return this.#provider.verify(data, signature);
+  }
+
+  /**
+   * Rotate asymmetric keys if supported by the provider.
+   * Maintains previous keys for verification of older evidence.
+   */
+  rotateKeys() {
+    if (typeof this.#provider.rotateKeys === 'function') {
+      return this.#provider.rotateKeys();
+    }
+    throw new Error('Key rotation is not supported by the current KMS provider.');
   }
 
   /**
@@ -359,10 +549,15 @@ class SecurityManager {
    * V5.0: Keys MUST be present in the environment at boot time.
    * The global-scope boot guard in index.js guarantees this.
    *
-   * @param {'software'|'hardware'} providerType
+   * V5.4.1: 'asymmetric' provider uses ECDSA P-256 for Evidence Locker
+   * chain signatures, eliminating the shared-secret HMAC vulnerability.
+   *
+   * @param {'software'|'asymmetric'|'hardware'} providerType
    * @param {object} [options] - Provider-specific options
-   * @param {string} [options.encryptionKey] - For software provider
-   * @param {string} [options.signingKey] - For software provider
+   * @param {string} [options.encryptionKey] - For all providers (AES-256-GCM)
+   * @param {string} [options.signingKey] - For software provider (HMAC)
+   * @param {string} [options.privateKeyPem] - For asymmetric provider
+   * @param {string} [options.publicKeyPem] - For asymmetric provider
    * @returns {SecurityManager}
    */
   static create(providerType = 'software', options = {}) {
@@ -399,14 +594,48 @@ class SecurityManager {
         return new SecurityManager(provider);
       }
 
+      case 'asymmetric': {
+        // V5.4.1: Asymmetric provider for Evidence Locker PKI.
+        // Private key signs; public key verifies. No shared secret.
+        const encKey = options.encryptionKey || process.env.SENTINEL_ENCRYPTION_KEY;
+        const privKey = options.privateKeyPem || process.env.SENTINEL_PRIVATE_KEY;
+        const pubKey = options.publicKeyPem || process.env.SENTINEL_PUBLIC_KEY;
+
+        if (!encKey) {
+          throw new Error(
+            '[FATAL_SECURITY_BOOT_FAILURE] SENTINEL_ENCRYPTION_KEY is not set. ' +
+            'Required for AES-256-GCM field encryption even in asymmetric mode.'
+          );
+        }
+        if (!privKey || !pubKey) {
+          throw new Error(
+            '[FATAL_SECURITY_BOOT_FAILURE] SENTINEL_PRIVATE_KEY and SENTINEL_PUBLIC_KEY are required ' +
+            'for asymmetric Evidence Locker signing. Generate ECDSA P-256 keys and store in Secret Manager. ' +
+            'Command: openssl ecparam -genkey -name prime256v1 -noout | openssl ec -out private.pem && ' +
+            'openssl ec -in private.pem -pubout -out public.pem'
+          );
+        }
+
+        const provider = new AsymmetricKmsProvider({
+          privateKeyPem: privKey.replace(/\\n/g, '\n'),
+          publicKeyPem: pubKey.replace(/\\n/g, '\n'),
+          encryptionKey: encKey,
+          keyId: options.keyId || 'sentinel-asym-v541',
+          algorithm: options.algorithm || 'ec',
+        });
+
+        console.log('[SECURITY_MANAGER] Initialized with AsymmetricKmsProvider (V5.4.1). Algorithm: ECDSA-P256. Evidence Locker: PKI-signed (non-repudiable).');
+        return new SecurityManager(provider);
+      }
+
       case 'hardware':
         throw new Error(
           'HardwareHsmProvider is not available until V5.1. ' +
-          'Use providerType="software" for V5.0.'
+          'Use providerType="software" or "asymmetric".'
         );
 
       default:
-        throw new Error(`Unknown provider type: ${providerType}. Expected "software" or "hardware".`);
+        throw new Error(`Unknown provider type: ${providerType}. Expected "software", "asymmetric", or "hardware".`);
     }
   }
 }
@@ -414,5 +643,6 @@ class SecurityManager {
 module.exports = {
   SecurityManager,
   SoftwareKmsProvider,
+  AsymmetricKmsProvider,
   HardwareHsmProvider,
 };

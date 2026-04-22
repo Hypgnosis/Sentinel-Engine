@@ -61,7 +61,15 @@ export class SentinelClient {
   async _getIdToken() {
     const auth = getAuth();
     await auth.authStateReady();
-    const user = auth.currentUser;
+    let user = auth.currentUser;
+
+    // If local auth state hasn't hydrated or the user is completely logged out,
+    // force a silent anonymous sign in right before the request flies.
+    if (!user) {
+      const { signInAnonymously } = await import('firebase/auth');
+      const cred = await signInAnonymously(auth);
+      user = cred.user;
+    }
 
     if (!user) {
       throw new SentinelError(
@@ -116,8 +124,11 @@ export class SentinelClient {
     const { response, data } = await this._request({ query: queryText.trim() });
 
     if (!response.ok) {
+      // Map audit failure code if present (v5.3 hardening)
+      const errorCode = data.status === 'TRUTH_AUDIT_FAILURE' ? data.error : (data.code || 'SENTINEL_REQUEST_FAILED');
+      
       throw new SentinelError(
-        data.code || 'SENTINEL_REQUEST_FAILED',
+        errorCode,
         data.message || data.error || `Request failed with status ${response.status}`,
         data.requestId,
         response.status

@@ -64,6 +64,8 @@ const LOGISTICS_DEFAULT = {
     ],
     modelFallback: 'gemini-1.5-flash',
   },
+  retrievalStrategies: ['INTERNAL_VECTOR', 'LEGACY_FS', 'EXTERNAL_PLUGINS', 'EXTERNAL_API'],
+  external_plugins: ['marinetraffic', 'xeneta', 'freightos'], // Example plugins for default logistics
   ui: {
     dashboardTitle: 'Sentinel Engine',
     dashboardSubtitle: 'Sovereign Intelligence Layer',
@@ -228,6 +230,26 @@ function getTTSConfig(config) {
 }
 
 /**
+ * Returns the configured retrieval strategies.
+ *
+ * @param {object} config - The loaded instance configuration
+ * @returns {string[]} e.g., ['INTERNAL_VECTOR', 'EXTERNAL_API']
+ */
+function getRetrievalStrategies(config) {
+  return config?.retrievalStrategies || LOGISTICS_DEFAULT.retrievalStrategies;
+}
+
+/**
+ * Returns the configured external plugins.
+ *
+ * @param {object} config - The loaded instance configuration
+ * @returns {string[]} e.g., ['marinetraffic', 'xeneta']
+ */
+function getExternalPlugins(config) {
+  return config?.external_plugins || LOGISTICS_DEFAULT.external_plugins;
+}
+
+/**
  * Invalidates the cached config for testing or hot-reload.
  */
 function invalidateCache() {
@@ -240,6 +262,8 @@ module.exports = {
   buildInstanceSystemPrompt,
   getComplexTriggers,
   getTTSConfig,
+  getRetrievalStrategies,
+  getExternalPlugins,
   invalidateCache,
   LOGISTICS_DEFAULT,
 };

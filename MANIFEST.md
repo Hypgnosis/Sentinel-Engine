@@ -1,14 +1,14 @@
 # SENTINEL ENGINE — SYSTEM MANIFEST
-### V4.9.0-RC "Fortress" — Verified Module Registry
+### V5.4.0 "Conditional Execution" — Verified Module Registry
 
 | | |
 |---|---|
-| **System** | Sentinel Engine V4.9-RC |
-| **Codename** | Fortress |
-| **Build Designation** | `4.9.0-rc` |
+| **System** | Sentinel Engine V5.4 |
+| **Codename** | Conditional Execution |
+| **Build Designation** | `5.4.0-hitl` |
 | **Classification** | Enterprise / Sovereign Infrastructure |
 | **Operator** | High ArchyTech Solutions |
-| **Generated** | 2026-04-15T02:54:00Z |
+| **Generated** | 2026-04-20T18:11:00Z |
 | **Sanitization Status** | ✅ COMPLETE — Zero secrets, zero debris, zero TODO markers |
 
 ---

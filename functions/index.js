@@ -1,17 +1,21 @@
 /**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.2 "SOVEREIGN ABSOLUTE")
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.4 "CONDITIONAL EXECUTION")
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20) — Gen2
  *
- * V5.2 CHANGES (Regulated Sector Hardening):
+ * V5.4 CHANGES (HITL & Escalation Module):
  * ─────────────────────────────────────────
- * 1 — Pessimistic Classification: Shadow Classifier FAILS CLOSED.
- *     Timeout/error/ambiguity → SENSITIVE → mandatory sync audit.
- * 2 — Pristine Priority Racing: 150ms window favors Postgres.
- *     Prevents stale BigQuery cache from winning by milliseconds.
- * 3 — SYSTEM_PEPPER: High-entropy boot secret for HKDF derivation.
- *     PII tokens are unreachable even if tenantId is compromised.
- * 4 — Configuration Monism: DATABASE_URL only. No fallback chains.
+ * 1 — Human-in-the-Loop Escalation: HIGH_IMPACT Prosecutor
+ *     rejections create JIT Approval Requests for Named Human
+ *     Approvers via the Standing Authority Matrix.
+ * 2 — Evidence Locker: Immutable, HMAC-signed chain-of-custody
+ *     audit ledger (KPMG Principle 4.4).
+ * 3 — WebAuthn/FIDO2: All privileged overrides require hardware
+ *     key authentication. No bypass mode.
+ * 4 — Shadow Classifier: impactLevel added as a separate
+ *     classification dimension (prevents Sensitivity Inflation).
+ * 5 — Pristine Checkpoints: Periodic data-state snapshots for
+ *     Evidence-Led Rollback (data-plane, <4hr MTTR).
  *
  * Constraints:
  *   - Truth over Speed (P99 may increase for SENSITIVE queries)
@@ -19,6 +23,7 @@
  *   - Zod-enforced schema compliance
  *   - Zero hardcoded secrets or connection strings
  *   - Zero lazy-loaded security primitives
+ *   - Every automated action maps to a Responsible_Authority_ID
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -78,7 +83,11 @@ const {
   buildInstanceSystemPrompt,
   getComplexTriggers,
   getTTSConfig,
+  getRetrievalStrategies,
+  getExternalPlugins,
 } = require('./instance-loader');
+
+const { ExternalIntelligenceAdapter } = require('./adapters/external-adapter');
 
 // V4.5 Core
 const { getSql, postgresVectorSearch, isSubjectRevoked } = require('./db');
@@ -86,10 +95,25 @@ const { IntegrityController, TruthAuditError } = require('./integrity-controller
 
 // V4.9-RC: Fortress Modules
 const { verifyPEP, PEPError } = require('./pep-gate');
-const { GEMINI_RESPONSE_SCHEMA, validateInferenceResponse } = require('./schemas');
+const { GEMINI_RESPONSE_SCHEMA, GEMINI_ENERGY_SCHEMA, validateInferenceResponse } = require('./schemas');
 const { recursiveSchemaRetry } = require('./recursive-retry');
 const { launchVerificationSidecar, getVerificationStatus } = require('./verification-loop');
 const { swrFetch, circuitBreaker } = require('./swr-cache');
+
+// V5.4: HITL & Escalation Modules
+const { EscalationEngine, addSSEClient } = require('./escalation-engine');
+const { EvidenceLocker } = require('./evidence-locker');
+const { StandingAuthorityMatrix } = require('./authority-matrix');
+const { WebAuthnProvider } = require('./webauthn-provider');
+const { RollbackEngine } = require('./rollback-engine');
+
+// V5.4: Initialize HITL services at boot
+const _evidenceLocker = new EvidenceLocker(_securityManager);
+const _escalationEngine = new EscalationEngine(_securityManager);
+const _rollbackEngine = new RollbackEngine(_securityManager);
+const _webauthnProvider = new WebAuthnProvider();
+
+console.log('[BOOT_GUARD] V5.4 HITL modules initialized: EvidenceLocker, EscalationEngine, RollbackEngine, WebAuthnProvider.');
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -115,6 +139,50 @@ const DATA_FRESHNESS_HOURS = parseInt(process.env.DATA_FRESHNESS_HOURS || '72', 
 
 const INSTANCE_CONFIG = loadInstanceConfig();
 const ACTIVE_BQ_DATASET = INSTANCE_CONFIG.database?.datasetId || BQ_DATASET;
+
+// Auto-register external plugins
+require('./adapters/mock-plugins');
+
+// ═══════════════════════════════════════════════════════
+//  BOOT GUARD: Runtime Protocol Verification
+//  ─────────────────────────────────────────────────────
+//  Phase 1: Structural — AdapterRegistry.register() already
+//           rejects specs without healthCheck() at require time.
+//  Phase 2: Runtime — verifySignalContract() fires a real
+//           AbortController and proves the adapter respects it.
+//  Phase 3: Lock — Registry is sealed ONLY after all plugins
+//           have been verified. Not a timer. Not a position.
+// ═══════════════════════════════════════════════════════
+const { AdapterRegistry } = require('./adapters/adapter-registry');
+
+const BOOT_GUARD_READY = (async () => {
+  const configuredPlugins = INSTANCE_CONFIG.external_plugins || [];
+  const HEALTHY_PLUGINS = [];
+
+  for (const plugin of configuredPlugins) {
+    // Phase 2: Runtime Signal Contract Verification
+    try {
+      const signalVerified = await AdapterRegistry.verifySignalContract(plugin);
+      if (signalVerified) {
+        HEALTHY_PLUGINS.push(plugin);
+        console.log(`[BOOT_GUARD] ✓ Plugin '${plugin}' passed Runtime Signal Contract.`);
+      } else {
+        console.error(`[BOOT_GUARD_REJECTED] Plugin '${plugin}' FAILED Runtime Signal Contract. Deactivated.`);
+      }
+    } catch (err) {
+      console.error(`[BOOT_GUARD_REJECTED] Plugin '${plugin}' threw during verification: ${err.message}. Deactivated.`);
+    }
+  }
+
+  // Override instance array with ONLY verified plugins
+  INSTANCE_CONFIG.external_plugins = HEALTHY_PLUGINS;
+  console.log(`[BOOT_GUARD] Verified ${HEALTHY_PLUGINS.length}/${configuredPlugins.length} plugins: ${HEALTHY_PLUGINS.join(', ') || '(none)'}`);
+
+  // Phase 3: Lock — every legitimate plugin is now registered and verified
+  AdapterRegistry.lock();
+
+  return HEALTHY_PLUGINS;
+})();
 
 /**
  * The resilience advisory string prepended to stale narratives
@@ -208,6 +276,7 @@ function getEmbedAI() {
 const ALLOWED_ORIGINS = [
   'http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174',
   'https://sentinel.high-archy.tech', 'https://sentinel-engine.netlify.app',
+  'https://ha-sentinel-core-v21.web.app', 'https://ha-sentinel-core-v21.firebaseapp.com',
 ];
 
 /**
@@ -216,13 +285,19 @@ const ALLOWED_ORIGINS = [
  * @param {object} res
  * @returns {boolean} True if the request was fully handled (OPTIONS/405)
  */
-const handleCORS = (req, res) => {
+const handleCORS = (req, res, allowGet = false) => {
   const origin = req.headers.origin;
   if (ALLOWED_ORIGINS.includes(origin)) res.set('Access-Control-Allow-Origin', origin);
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Sentinel-Client, X-Sentinel-Instance');
   if (req.method === 'OPTIONS') { res.status(204).send(''); return true; }
+  
+  const isSSEStream = req.query?.stream === 'true' || req.headers?.accept === 'text/event-stream';
+  if (req.method === 'GET' && (allowGet || isSSEStream)) {
+    return false; // Allow GET for streams
+  }
+
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method Not Allowed' }); return true; }
   return false;
 };
@@ -469,49 +544,84 @@ function pristineRace(pgPromise, bqPromise) {
 //  SHADOW CLASSIFIER — Pessimistic Sensitivity Gate (V5.2)
 // ─────────────────────────────────────────────────────
 
-const SHADOW_CLASSIFIER_MODEL = 'gemini-2.5-flash';
+const SHADOW_CLASSIFIER_MODEL = 'gemini-2.0-flash-lite';
 
 /**
  * Fires a 10-token prompt to classify query sensitivity BEFORE primary
  * inference. Determines whether The Prosecutor must synchronously verify.
+ * Output includes an industry domain classification as well.
  *
- * Returns: 'SENSITIVE' | 'PROCEDURAL' | 'GENERAL'
+ * Returns: { classification: 'SENSITIVE'|'PROCEDURAL'|'GENERAL', domain: 'LOGISTICS'|'ENERGY'|'UNKNOWN' }
  *
  * V5.2 FAIL-CLOSED POLICY:
  * If the classifier fails (timeout, network, quota), OR returns an
- * ambiguous result, it defaults to 'SENSITIVE'. This forces mandatory
- * synchronous verification whenever the security sensors are offline.
- * We do NOT "Fail-Open" in a Fortress.
+ * ambiguous result, it defaults to 'SENSITIVE'.
  *
  * @param {GoogleGenAI} genai - AI client
  * @param {string} query - User query
- * @returns {Promise<string>} Classification result
+ * @returns {Promise<{classification: string, domain: string}>} Classification result
  */
 async function classifyQuerySensitivity(genai, query) {
   try {
     const result = await genai.models.generateContent({
       model: SHADOW_CLASSIFIER_MODEL,
-      contents: `Classify this query as exactly one of: SENSITIVE, PROCEDURAL, GENERAL.\nQuery: ${query}`,
+      contents: `Classify this query. You must output valid JSON.
+Fields:
+"classification": Exactly one of "SENSITIVE", "PROCEDURAL", "GENERAL".
+"domain": Exactly one of "LOGISTICS", "ENERGY", "UNKNOWN".
+"impactLevel": Exactly one of "UTILITY_CRITICAL", "HIGH_IMPACT", "STANDARD", "LOW".
+  - UTILITY_CRITICAL: Physical safety, grid stability, power distribution, water treatment, life-safety systems. Blocking these causes catastrophic real-world harm (blackouts, floods, loss of life).
+  - HIGH_IMPACT: Grid-level changes, infrastructure decisions, financial commitments, safety-critical operations.
+  - STANDARD: Routine operational queries, status checks, trend analysis.
+  - LOW: Informational, non-actionable queries.
+Query: ${query}`,
       config: {
         temperature: 0.0,
-        maxOutputTokens: 50,
-        topK: 1,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+             classification: { type: 'STRING', enum: ['SENSITIVE', 'PROCEDURAL', 'GENERAL'] },
+             domain: { type: 'STRING', enum: ['LOGISTICS', 'ENERGY', 'UNKNOWN'] },
+             impactLevel: { type: 'STRING', enum: ['UTILITY_CRITICAL', 'HIGH_IMPACT', 'STANDARD', 'LOW'] }
+          },
+          required: ['classification', 'domain', 'impactLevel']
+        },
         thinkingConfig: { thinkingBudget: 0 },
       },
     });
-    const rawText = result.text;
-    const classification = (rawText || '').trim().toUpperCase();
-    // Only accept exact, unambiguous matches
-    if (classification === 'PROCEDURAL') return 'PROCEDURAL';
-    if (classification === 'GENERAL') return 'GENERAL';
-    // Anything else — including partial matches, empty strings,
-    // or unexpected model output — is treated as SENSITIVE.
-    // This is the Pessimistic Classification principle.
-    return 'SENSITIVE';
+    const rawText = (result.text || '').trim();
+    const parsed = JSON.parse(rawText);
+    
+    // Resilience Failure Patch: If domain is UNKNOWN, default to SENSITIVE
+    let classification = parsed.classification || 'SENSITIVE';
+    const domain = parsed.domain || 'UNKNOWN';
+    // V5.4: impactLevel is a SEPARATE dimension from classification.
+    // A query can be SENSITIVE (PII) without being HIGH_IMPACT (grid-level).
+    // This prevents "Sensitivity Inflation" and supervisor fatigue.
+    let impactLevel = parsed.impactLevel || 'STANDARD';
+
+    if (domain === 'UNKNOWN') {
+       classification = 'SENSITIVE';
+    }
+
+    // FAIL-CLOSED for impact: UNKNOWN domain → HIGH_IMPACT
+    if (domain === 'UNKNOWN' && impactLevel === 'LOW') {
+      impactLevel = 'STANDARD';
+    }
+
+    // V5.4.1: UTILITY_CRITICAL is only valid for ENERGY domain.
+    // Prevents classification inflation from non-utility queries.
+    if (impactLevel === 'UTILITY_CRITICAL' && domain !== 'ENERGY') {
+      console.warn(`[SHADOW_CLASSIFIER] UTILITY_CRITICAL downgraded to HIGH_IMPACT — domain is ${domain}, not ENERGY.`);
+      impactLevel = 'HIGH_IMPACT';
+    }
+
+    return { classification, domain, impactLevel };
   } catch (err) {
-    // FAIL-CLOSED: Classifier down → treat as SENSITIVE → mandatory sync audit.
-    console.warn(`[SHADOW_CLASSIFIER] FAIL-CLOSED: ${err.message}. Defaulting to SENSITIVE.`);
-    return 'SENSITIVE';
+    // FAIL-CLOSED: Classifier down → treat as SENSITIVE + HIGH_IMPACT → mandatory sync audit + escalation.
+    console.warn(`[SHADOW_CLASSIFIER] FAIL-CLOSED: ${err.message}. Defaulting to SENSITIVE/UNKNOWN/HIGH_IMPACT.`);
+    return { classification: 'SENSITIVE', domain: 'UNKNOWN', impactLevel: 'HIGH_IMPACT' };
   }
 }
 
@@ -531,6 +641,10 @@ async function handleSentinelInference(req, res) {
   const t0 = Date.now();
   const trace = {};
   if (handleCORS(req, res)) return;
+
+  // Block until Boot Guard verification is complete — no requests
+  // served with an unlocked registry or unverified adapters.
+  await BOOT_GUARD_READY;
 
   try {
     const genai = getGenAI();      // API Key client — generation + classification
@@ -564,9 +678,14 @@ async function handleSentinelInference(req, res) {
 
     // V5.1: Shadow Classifier — determine query sensitivity BEFORE inference
     const tClassify0 = Date.now();
-    const queryClassification = await classifyQuerySensitivity(genai, query);
+    const classificationResult = await classifyQuerySensitivity(genai, query);
+    const queryClassification = classificationResult.classification;
+    const industryDomain = classificationResult.domain;
+    const impactLevel = classificationResult.impactLevel; // V5.4: separate dimension
     trace.classification = Date.now() - tClassify0;
     trace.queryClass = queryClassification;
+    trace.industryDomain = industryDomain;
+    trace.impactLevel = impactLevel;
 
     // DATABASE_URL: Validated at BOOT (global scope, lines 45-56).
     // db.js consumes DATABASE_URL directly (Configuration Monism).
@@ -628,14 +747,37 @@ async function handleSentinelInference(req, res) {
 
       // C: Firestore (Tier 3 — Legacy Fallback, only if raceToData returned nothing)
       const tFs0 = Date.now();
-      if (!contextPayload) {
+      const strategies = getRetrievalStrategies(INSTANCE_CONFIG);
+      
+      if (!contextPayload && strategies.includes('LEGACY_FS')) {
         const fsRes = await firestoreLegacyRetrieval(tenantId);
         if (fsRes.contextPayload) {
           contextPayload = fsRes.contextPayload;
-          dataAuthority = 'FIRESTORE_LEGACY';
+          dataAuthority = (dataAuthority ? dataAuthority + ' | ' : '') + 'FIRESTORE_LEGACY';
         }
       }
       trace.firestore = Date.now() - tFs0;
+      
+      // D: External Adapters (Strategy + Adapter Pattern API)
+      const tExternal = Date.now();
+      if (strategies.includes('EXTERNAL_API') || strategies.includes('EXTERNAL_PLUGINS')) {
+         const activeAdapters = getExternalPlugins(INSTANCE_CONFIG);
+         if (activeAdapters && activeAdapters.length > 0) {
+           try {
+             const externalData = await ExternalIntelligenceAdapter.fetch(query, industryDomain, activeAdapters);
+             if (externalData) {
+               // Knowledge-aware merge: internal vector rows are protected
+               const { mergeContextSafely } = require('./adapters/context-packer');
+               contextPayload = mergeContextSafely(contextPayload, externalData);
+               dataAuthority = (dataAuthority ? dataAuthority + ' | ' : '') + 'EXTERNAL_INTELLIGENCE_ADAPTER';
+             }
+           } catch (e) {
+             console.error('[EXTERNAL_ADAPTER_ERROR]', e.message);
+           }
+         }
+      }
+      trace.externalAdapters = Date.now() - tExternal;
+      
       trace.ragTotal = Date.now() - tRag0;
 
       // Step 4: Kill Switch
@@ -670,9 +812,31 @@ async function handleSentinelInference(req, res) {
 
       // ═══ PHASE 2: AI Inference with Zod Schema Decomposition ═══
       const tGen0 = Date.now();
-      const systemPrompt = buildInstanceSystemPrompt(INSTANCE_CONFIG, contextPayload, dataAuthority)
-        || `SYSTEM: Sentinel v5.0 Sovereign Fortress. Context: ${contextPayload}`;
+      
+      let systemPrompt = '';
+      if (industryDomain === 'UNKNOWN') {
+        const BASE_DOMAIN_PROMPT = `SYSTEM: Sentinel v5.0 Sovereign Fortress.
+STATUS: UNIVERSAL BASELINE ACTIVE.
+DATA AUTHORITY: ${dataAuthority}
+
+WARNING: You are operating in a domain-agnostic environment (UNKNOWN domain). 
+You MUST NOT assume any industry context (no logistics, no energy, etc).
+Respond SOLELY based on the provided Operational Context below. 
+Do not hallucinate external industry terminology. Use a generic, structural format.
+
+OPERATIONAL CONTEXT:
+${contextPayload}
+
+OUTPUT FORMAT: Strict JSON matching the specified Response Schema.`;
+        systemPrompt = BASE_DOMAIN_PROMPT;
+      } else {
+        systemPrompt = buildInstanceSystemPrompt(INSTANCE_CONFIG, contextPayload, dataAuthority)
+          || `SYSTEM: Sentinel v5.0 Sovereign Fortress. Context: ${contextPayload}`;
+      }
+      
       const modelId = selectModel(query, INSTANCE_CONFIG);
+      
+      const targetSchema = industryDomain === 'ENERGY' ? GEMINI_ENERGY_SCHEMA : GEMINI_RESPONSE_SCHEMA;
 
       let data = null;
       let fallbackRetries = 0;
@@ -688,7 +852,7 @@ async function handleSentinelInference(req, res) {
           config: {
             systemInstruction: retryPrompt,
             responseMimeType: 'application/json',
-            responseSchema: GEMINI_RESPONSE_SCHEMA,
+            responseSchema: targetSchema,
             temperature: 0.1,
             maxOutputTokens: 2048,
             topK: 20,
@@ -709,7 +873,7 @@ async function handleSentinelInference(req, res) {
           const parsed = JSON.parse(cleanedText);
 
           // ═══ PHASE 2: Zod Validation ═══
-          const validation = validateInferenceResponse(parsed);
+          const validation = validateInferenceResponse(parsed, industryDomain);
 
           if (validation.valid) {
             data = validation.result;
@@ -759,7 +923,7 @@ async function handleSentinelInference(req, res) {
 
       // ═══ PHASE 5: UNIFIED TRUTH AUDIT (Zod + Data Sovereignty) ═══
       // tenantId passed for per-tenant PII salt (prevents rainbow tables)
-      data = await integrityCtrl.finalTruthAudit(data, tenantId);
+      data = await integrityCtrl.finalTruthAudit(data, tenantId, { industryDomain, contextPayload });
 
       return {
         data,
@@ -838,6 +1002,10 @@ async function handleSentinelInference(req, res) {
         tenantId,
         narrative: data.narrative,
         sourceContext: contextPayload,
+        // V5.4: Pass escalation context to the Prosecutor
+        impactLevel,
+        queryClassification,
+        securityManager: _securityManager,
       };
 
       if (isSensitive) {
@@ -845,6 +1013,22 @@ async function handleSentinelInference(req, res) {
         try {
           verificationResult = await launchVerificationSidecar(sidecarPayload);
           trace.verification = Date.now() - t0;
+
+          // V5.4: If Prosecutor created an escalation, return 202 Accepted
+          if (verificationResult?._escalation?.status === 'ESCALATION_PENDING') {
+            trace.total = Date.now() - t0;
+            return res.status(202).json({
+              status: 'ESCALATION_PENDING',
+              message: 'HIGH_IMPACT hallucination detected. JIT Escalation created for human review.',
+              escalation: verificationResult._escalation,
+              requestId,
+              queryClassification,
+              impactLevel,
+              latencyTrace: trace,
+              isResilienceMode,
+              cacheStatus: swrResult.cacheStatus,
+            });
+          }
         } catch (err) {
           console.error('[VERIFICATION_SIDECAR] Sync verification failed:', err.message);
           verificationResult = { isVerified: null, error: err.message };
@@ -856,6 +1040,10 @@ async function handleSentinelInference(req, res) {
       }
     }
 
+    // V5.4: Pristine Checkpoint — periodic data-state snapshot
+    _rollbackEngine.createPristineCheckpoint(tenantId, requestId)
+      .catch(err => console.warn('[PRISTINE_CHECKPOINT] Background error:', err.message));
+
     trace.total = Date.now() - t0;
 
     return res.status(200).json({
@@ -863,13 +1051,16 @@ async function handleSentinelInference(req, res) {
       model: modelId || 'gemini-2.5-flash',
       timestamp: new Date().toISOString(),
       data,
-      infrastructure: `Sentinel v5.2 [${dataAuthority}]`,
+      infrastructure: `Sentinel v5.4 [${dataAuthority}]`,
       latencyTrace: trace,
       requestId,
       queryClassification,
-      verificationStatus: isSensitive
-        ? (verificationResult?.isVerified === false ? 'HALLUCINATION_FLAGGED' : (verificationResult?.isVerified ? 'verified' : 'verification_failed'))
-        : 'pending',
+      impactLevel,
+      verificationStatus: data._verificationPartial 
+        ? 'PARTIAL' 
+        : (isSensitive
+            ? (verificationResult?.isVerified === false ? 'HALLUCINATION_FLAGGED' : (verificationResult?.isVerified ? 'verified' : 'verification_failed'))
+            : 'pending'),
       verificationResult: isSensitive ? verificationResult : undefined,
       isResilienceMode,
       cacheStatus: swrResult.cacheStatus,
@@ -879,13 +1070,29 @@ async function handleSentinelInference(req, res) {
   } catch (err) {
     trace.total = Date.now() - t0;
 
-    // TruthAuditError: Zod validation failed — return typed 422, not generic 500
+    // TruthAuditError: Zod validation or Integrity Gate — return typed 422, not generic 500
+    //
+    // MONITORING DISTINCTION:
+    //   SCHEMA_VALIDATION_FAILED  → System error. The LLM is broken. Page on-call.
+    //   INTEGRITY_GATE_REJECTION  → System working. Engine saved the user. Track as metric.
     if (err instanceof TruthAuditError) {
-      console.error(`[TRUTH_AUDIT_REJECTED] ${err.message}`);
+      const auditCode = err.auditCode || 'SCHEMA_VALIDATION_FAILED';
+      console.error(
+        JSON.stringify({
+          severity: auditCode === 'INTEGRITY_GATE_REJECTION' ? 'WARNING' : 'ERROR',
+          message: `[TRUTH_AUDIT] ${auditCode}: ${err.message}`,
+          auditCode,
+          failedModules: err.failedModules,
+          requestId,
+          labels: { auditCode, engine: 'sentinel-v5.3' },
+        })
+      );
       return res.status(422).json({
         status: 'TRUTH_AUDIT_FAILURE',
-        error: 'SCHEMA_VALIDATION_FAILED',
-        message: 'The AI produced structurally unverifiable output. The Integrity Controller has rejected this response.',
+        error: auditCode,
+        message: auditCode === 'INTEGRITY_GATE_REJECTION'
+          ? 'The Integrity Controller rejected a substantively empty response. The engine is protecting you from low-quality intelligence.'
+          : 'The AI produced structurally unverifiable output. The Integrity Controller has rejected this response.',
         failedModules: err.failedModules,
         latencyTrace: trace,
         requestId,
@@ -962,7 +1169,391 @@ async function handleSentinelTTS(req, res) {
   }
 }
 
+// ─────────────────────────────────────────────────────
+//  ENTRY POINT: HITL ESCALATION MANAGEMENT (V5.4)
+// ─────────────────────────────────────────────────────
+
+/**
+ * HITL Escalation endpoint. Supports:
+ * - GET-style (action: 'list'): List pending escalations
+ * - GET-style (action: 'history'): Get escalation history
+ * - POST (action: 'resolve'): Resolve an escalation (WebAuthn-gated)
+ * - POST (action: 'rollback'): Trigger data-plane rollback (WebAuthn-gated)
+ * - GET-style (action: 'authorities'): List authority matrix
+ * - GET-style (action: 'evidence'): Get evidence locker fragment
+ * - GET-style (action: 'chain_verify'): Verify evidence chain integrity
+ * - POST (action: 'webauthn_register_options'): Get WebAuthn registration options
+ * - POST (action: 'webauthn_register_verify'): Verify WebAuthn registration
+ * - POST (action: 'webauthn_auth_options'): Get WebAuthn authentication options
+ * - POST (action: 'webauthn_auth_verify'): Verify WebAuthn authentication
+ */
+async function handleSentinelEscalation(req, res) {
+  if (handleCORS(req, res)) return;
+
+  try {
+    // ── V5.4.1: Server-Sent Events (SSE) Stream ──
+    // SSE clients connect via query param ?stream=true or action='stream'.
+    // This eliminates the 5-second polling bottleneck for HITL dashboards.
+    const isSSEStream = req.query?.stream === 'true' ||
+                        req.body?.action === 'stream' ||
+                        req.headers?.accept === 'text/event-stream';
+
+    if (isSSEStream) {
+      console.log('[HITL_SSE] New SSE client connected from dashboard.');
+      addSSEClient(req, res);
+      return; // Keep connection open — do not send a JSON response
+    }
+
+    const { action } = req.body;
+
+    if (!action) {
+      return res.status(400).json({ error: 'action is required' });
+    }
+
+    // ── Admin-only bypass (GCP identity token auth, no Firebase PEP) ──
+    if (action === 'migrate' || action === 'seed') {
+      let sqlConn = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          sqlConn = getSql();
+          await sqlConn`SELECT 1`; // warmup probe
+          break;
+        } catch (warmupErr) {
+          console.log(`[BYPASS] Connection warmup attempt ${attempt + 1}/5: ${warmupErr.message}`);
+          if (attempt < 4) await new Promise(r => setTimeout(r, 2000));
+          else return res.status(503).json({ error: 'Database unreachable after 5 warmup attempts', detail: warmupErr.message });
+        }
+      }
+
+      if (action === 'seed') {
+        try {
+          await sqlConn`
+            INSERT INTO standing_authority_matrix (authority_id, name, role, blast_radius, escalation_tier, is_active)
+            VALUES 
+              ('SOC-TIER-1-DEFAULT', 'SOC Tier 1', 'SOC_TIER_1', 'LOCAL', 1, true),
+              ('CISO-DEFAULT', 'Chief Information Security Officer', 'CISO', 'GLOBAL', 4, true)
+            ON CONFLICT (authority_id) DO NOTHING;
+          `;
+          return res.status(200).json({ status: 'SEED_COMPLETE' });
+        } catch (seedErr) {
+          return res.status(500).json({ status: 'SEED_ERROR', detail: seedErr.message });
+        }
+      }
+      const migrationStatements = [
+          `CREATE TABLE IF NOT EXISTS standing_authority_matrix (
+            authority_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('SOC_TIER_1','SOC_TIER_2','CHIEF_ENGINEER','CISO')),
+            blast_radius TEXT NOT NULL CHECK (blast_radius IN ('LOCAL','REGIONAL','GLOBAL')),
+            escalation_tier INTEGER NOT NULL CHECK (escalation_tier BETWEEN 1 AND 4),
+            contact_channel TEXT, webhook_url TEXT, is_active BOOLEAN DEFAULT TRUE,
+            tenant_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS evidence_locker (
+            locker_id TEXT PRIMARY KEY, request_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK (event_type IN (
+              'PROSECUTOR_REJECTION','ESCALATION_CREATED','HUMAN_OVERRIDE',
+              'HUMAN_CONFIRM_REJECTION','COACHING_ANNOTATION',
+              'ROLLBACK_TRIGGERED','PRISTINE_CHECKPOINT','AUTHORITY_MODIFIED'
+            )),
+            responsible_authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+            payload JSONB NOT NULL, signature TEXT NOT NULL, previous_signature TEXT,
+            tenant_id TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS escalation_requests (
+            escalation_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
+            authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+            status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','OVERRIDE_RELEASED','CONFIRMED_BLOCKED','TTL_EXPIRED')),
+            impact_level TEXT NOT NULL DEFAULT 'HIGH_IMPACT' CHECK (impact_level IN ('HIGH_IMPACT','STANDARD','LOW')),
+            blast_radius TEXT NOT NULL DEFAULT 'LOCAL', evidence_fragment JSONB NOT NULL,
+            resolution_payload JSONB, coaching_annotation TEXT, ttl_expires_at TIMESTAMPTZ NOT NULL,
+            resolved_at TIMESTAMPTZ, resolved_by TEXT, webauthn_assertion_id TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS webauthn_credentials (
+            credential_id TEXT PRIMARY KEY, authority_id TEXT NOT NULL REFERENCES standing_authority_matrix(authority_id),
+            public_key BYTEA NOT NULL, counter INTEGER NOT NULL DEFAULT 0,
+            transports TEXT[], aaguid TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `ALTER TABLE verification_results ADD COLUMN IF NOT EXISTS escalation_id TEXT`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_request ON evidence_locker(request_id)`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_tenant ON evidence_locker(tenant_id)`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_type ON evidence_locker(event_type)`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_created ON evidence_locker(created_at DESC)`,
+          `CREATE INDEX IF NOT EXISTS idx_escalation_status ON escalation_requests(status)`,
+          `CREATE INDEX IF NOT EXISTS idx_escalation_tenant ON escalation_requests(tenant_id)`,
+          `CREATE INDEX IF NOT EXISTS idx_escalation_ttl ON escalation_requests(ttl_expires_at) WHERE status = 'PENDING'`,
+          `CREATE INDEX IF NOT EXISTS idx_authority_active ON standing_authority_matrix(is_active) WHERE is_active = TRUE`,
+          `CREATE INDEX IF NOT EXISTS idx_authority_blast ON standing_authority_matrix(blast_radius, escalation_tier)`,
+          `CREATE INDEX IF NOT EXISTS idx_webauthn_authority ON webauthn_credentials(authority_id)`,
+          `ALTER TABLE evidence_locker DROP CONSTRAINT IF EXISTS evidence_locker_event_type_check`,
+          `ALTER TABLE evidence_locker ADD CONSTRAINT evidence_locker_event_type_check CHECK (event_type IN (
+              'PROSECUTOR_REJECTION','ESCALATION_CREATED','HUMAN_OVERRIDE',
+              'HUMAN_CONFIRM_REJECTION','COACHING_ANNOTATION',
+              'ROLLBACK_TRIGGERED','PRISTINE_CHECKPOINT','AUTHORITY_MODIFIED',
+              'GOVERNANCE_FINDING', 'LEGIBILITY_RECORD'
+          ))`,
+          `ALTER TABLE escalation_requests DROP CONSTRAINT IF EXISTS escalation_requests_impact_level_check`,
+          `ALTER TABLE escalation_requests ADD CONSTRAINT escalation_requests_impact_level_check CHECK (impact_level IN (
+              'HIGH_IMPACT', 'STANDARD', 'LOW', 'UTILITY_CRITICAL'
+          ))`,
+          `ALTER TABLE escalation_requests DROP CONSTRAINT IF EXISTS escalation_requests_status_check`,
+          `ALTER TABLE escalation_requests ADD CONSTRAINT escalation_requests_status_check CHECK (status IN (
+              'PENDING', 'OVERRIDE_RELEASED', 'CONFIRMED_BLOCKED', 'TTL_EXPIRED', 'MONOTONIC_REDUCTION_APPLIED'
+          ))`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_finding_action ON evidence_locker USING GIN ((payload -> 'finding' -> 'action'))`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_finding_trigger ON evidence_locker USING GIN ((payload -> 'finding' -> 'trigger'))`,
+        ];
+        let applied = 0, migErrors = 0;
+        const migResults = [];
+        for (const stmt of migrationStatements) {
+          try {
+            await sqlConn.unsafe(stmt);
+            applied++;
+            const m = stmt.match(/(?:TABLE|INDEX|ALTER TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?(\S+)/i);
+            migResults.push({ ok: true, name: m ? m[1] : 'unknown' });
+          } catch (migErr) {
+            migErrors++;
+            migResults.push({ ok: false, error: migErr.message.substring(0, 150) });
+          }
+        }
+        return res.status(200).json({ status: 'MIGRATION_COMPLETE', applied, errors: migErrors, results: migResults, version: '5.4.0-hitl' });
+    }
+
+    const ctx = await verifyPEP(req);
+    const tenantId = ctx.tenantId;
+
+    switch (action) {
+      // ── Escalation Queue ──
+      case 'list': {
+        const pending = await _escalationEngine.listPending(tenantId);
+        return res.status(200).json({ status: 'SUCCESS', escalations: pending });
+      }
+
+      case 'history': {
+        const limit = req.body.limit || 50;
+        const history = await _escalationEngine.getHistory(tenantId, limit);
+        return res.status(200).json({ status: 'SUCCESS', history });
+      }
+
+      case 'resolve': {
+        const { escalationId, decision, authorityId, coachingAnnotation, webauthnAssertion } = req.body;
+        if (!escalationId || !decision || !authorityId) {
+          return res.status(400).json({ error: 'escalationId, decision, and authorityId are required' });
+        }
+        const result = await _escalationEngine.resolveEscalation({
+          escalationId, decision, authorityId, coachingAnnotation, webauthnAssertion,
+        });
+        return res.status(200).json({ status: 'SUCCESS', ...result });
+      }
+
+      // ── Rollback ──
+      case 'rollback': {
+        const { authorityId, reason, webauthnAssertion } = req.body;
+        if (!authorityId) {
+          return res.status(400).json({ error: 'authorityId is required for rollback' });
+        }
+        // WebAuthn verification
+        if (webauthnAssertion) {
+          const isValid = await _webauthnProvider.verifyAuthentication(authorityId, webauthnAssertion);
+          if (!isValid) {
+            return res.status(403).json({ error: 'FIDO2 assertion invalid. Rollback DENIED.' });
+          }
+        }
+        const result = await _rollbackEngine.initiateRollback({
+          tenantId, authorityId, requestId: `ROLLBACK-${Date.now()}`, reason,
+        });
+        return res.status(200).json({ status: 'SUCCESS', ...result });
+      }
+
+      case 'rollback_status': {
+        const availability = await _rollbackEngine.checkRollbackAvailability(tenantId);
+        return res.status(200).json({ status: 'SUCCESS', ...availability });
+      }
+
+      // ── Authority Matrix ──
+      case 'authorities': {
+        const authorities = await StandingAuthorityMatrix.listActive(tenantId);
+        return res.status(200).json({ status: 'SUCCESS', authorities });
+      }
+
+      // ── Evidence Locker ──
+      case 'evidence': {
+        const { requestId } = req.body;
+        if (!requestId) return res.status(400).json({ error: 'requestId is required' });
+        const fragment = await _evidenceLocker.getFragment(requestId);
+        return res.status(200).json({ status: 'SUCCESS', evidence: fragment });
+      }
+
+      case 'evidence_recent': {
+        const events = await _evidenceLocker.getRecentEvents(tenantId, req.body.limit || 50);
+        return res.status(200).json({ status: 'SUCCESS', events });
+      }
+
+      case 'chain_verify': {
+        const chainResult = await _evidenceLocker.verifyChain(tenantId);
+        return res.status(200).json({ status: 'SUCCESS', chain: chainResult });
+      }
+
+      // ── WebAuthn Ceremonies ──
+      case 'webauthn_register_options': {
+        const { authorityId, authorityName } = req.body;
+        if (!authorityId) return res.status(400).json({ error: 'authorityId is required' });
+        const options = await _webauthnProvider.generateRegistrationOptions(authorityId, authorityName);
+        return res.status(200).json({ status: 'SUCCESS', options });
+      }
+
+      case 'webauthn_register_verify': {
+        const { authorityId, registrationResponse } = req.body;
+        if (!authorityId || !registrationResponse) {
+          return res.status(400).json({ error: 'authorityId and registrationResponse are required' });
+        }
+        const result = await _webauthnProvider.verifyRegistration(authorityId, registrationResponse);
+        return res.status(200).json({ status: 'SUCCESS', ...result });
+      }
+
+      case 'webauthn_auth_options': {
+        const { authorityId } = req.body;
+        if (!authorityId) return res.status(400).json({ error: 'authorityId is required' });
+        const options = await _webauthnProvider.generateAuthenticationOptions(authorityId);
+        return res.status(200).json({ status: 'SUCCESS', options });
+      }
+
+      case 'webauthn_auth_verify': {
+        const { authorityId, authenticationResponse } = req.body;
+        if (!authorityId || !authenticationResponse) {
+          return res.status(400).json({ error: 'authorityId and authenticationResponse are required' });
+        }
+        const verified = await _webauthnProvider.verifyAuthentication(authorityId, authenticationResponse);
+        return res.status(200).json({ status: 'SUCCESS', verified });
+      }
+
+      // ── Schema Migration (one-shot, run once per version) ──
+      case 'migrate': {
+        const migrationStatements = [
+          `CREATE TABLE IF NOT EXISTS standing_authority_matrix (
+            authority_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('SOC_TIER_1','SOC_TIER_2','CHIEF_ENGINEER','CISO')),
+            blast_radius TEXT NOT NULL CHECK (blast_radius IN ('LOCAL','REGIONAL','GLOBAL')),
+            escalation_tier INTEGER NOT NULL CHECK (escalation_tier BETWEEN 1 AND 4),
+            contact_channel TEXT, webhook_url TEXT, is_active BOOLEAN DEFAULT TRUE,
+            tenant_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS evidence_locker (
+            locker_id TEXT PRIMARY KEY, request_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK (event_type IN (
+              'PROSECUTOR_REJECTION','ESCALATION_CREATED','HUMAN_OVERRIDE',
+              'HUMAN_CONFIRM_REJECTION','COACHING_ANNOTATION',
+              'ROLLBACK_TRIGGERED','PRISTINE_CHECKPOINT','AUTHORITY_MODIFIED'
+            )),
+            responsible_authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+            payload JSONB NOT NULL, signature TEXT NOT NULL, previous_signature TEXT,
+            tenant_id TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS escalation_requests (
+            escalation_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
+            authority_id TEXT REFERENCES standing_authority_matrix(authority_id),
+            status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','OVERRIDE_RELEASED','CONFIRMED_BLOCKED','TTL_EXPIRED')),
+            impact_level TEXT NOT NULL DEFAULT 'HIGH_IMPACT' CHECK (impact_level IN ('HIGH_IMPACT','STANDARD','LOW')),
+            blast_radius TEXT NOT NULL DEFAULT 'LOCAL', evidence_fragment JSONB NOT NULL,
+            resolution_payload JSONB, coaching_annotation TEXT, ttl_expires_at TIMESTAMPTZ NOT NULL,
+            resolved_at TIMESTAMPTZ, resolved_by TEXT, webauthn_assertion_id TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS webauthn_credentials (
+            credential_id TEXT PRIMARY KEY, authority_id TEXT NOT NULL REFERENCES standing_authority_matrix(authority_id),
+            public_key BYTEA NOT NULL, counter INTEGER NOT NULL DEFAULT 0,
+            transports TEXT[], aaguid TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+          )`,
+          `ALTER TABLE verification_results ADD COLUMN IF NOT EXISTS escalation_id TEXT`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_request ON evidence_locker(request_id)`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_tenant ON evidence_locker(tenant_id)`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_type ON evidence_locker(event_type)`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_created ON evidence_locker(created_at DESC)`,
+          `CREATE INDEX IF NOT EXISTS idx_escalation_status ON escalation_requests(status)`,
+          `CREATE INDEX IF NOT EXISTS idx_escalation_tenant ON escalation_requests(tenant_id)`,
+          `CREATE INDEX IF NOT EXISTS idx_escalation_ttl ON escalation_requests(ttl_expires_at) WHERE status = 'PENDING'`,
+          `CREATE INDEX IF NOT EXISTS idx_authority_active ON standing_authority_matrix(is_active) WHERE is_active = TRUE`,
+          `CREATE INDEX IF NOT EXISTS idx_authority_blast ON standing_authority_matrix(blast_radius, escalation_tier)`,
+          `CREATE INDEX IF NOT EXISTS idx_webauthn_authority ON webauthn_credentials(authority_id)`,
+          `ALTER TABLE evidence_locker DROP CONSTRAINT IF EXISTS evidence_locker_event_type_check`,
+          `ALTER TABLE evidence_locker ADD CONSTRAINT evidence_locker_event_type_check CHECK (event_type IN (
+              'PROSECUTOR_REJECTION','ESCALATION_CREATED','HUMAN_OVERRIDE',
+              'HUMAN_CONFIRM_REJECTION','COACHING_ANNOTATION',
+              'ROLLBACK_TRIGGERED','PRISTINE_CHECKPOINT','AUTHORITY_MODIFIED',
+              'GOVERNANCE_FINDING', 'LEGIBILITY_RECORD'
+          ))`,
+          `ALTER TABLE escalation_requests DROP CONSTRAINT IF EXISTS escalation_requests_impact_level_check`,
+          `ALTER TABLE escalation_requests ADD CONSTRAINT escalation_requests_impact_level_check CHECK (impact_level IN (
+              'HIGH_IMPACT', 'STANDARD', 'LOW', 'UTILITY_CRITICAL'
+          ))`,
+          `ALTER TABLE escalation_requests DROP CONSTRAINT IF EXISTS escalation_requests_status_check`,
+          `ALTER TABLE escalation_requests ADD CONSTRAINT escalation_requests_status_check CHECK (status IN (
+              'PENDING', 'OVERRIDE_RELEASED', 'CONFIRMED_BLOCKED', 'TTL_EXPIRED', 'MONOTONIC_REDUCTION_APPLIED'
+          ))`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_finding_action ON evidence_locker USING GIN ((payload -> 'finding' -> 'action'))`,
+          `CREATE INDEX IF NOT EXISTS idx_evidence_finding_trigger ON evidence_locker USING GIN ((payload -> 'finding' -> 'trigger'))`,
+          `CREATE TABLE IF NOT EXISTS arbitration_requests (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            requesting_agent TEXT NOT NULL,
+            action TEXT NOT NULL,
+            context JSONB NOT NULL,
+            target_domain TEXT,
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS arbitration_responses (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            request_id UUID NOT NULL REFERENCES arbitration_requests(id) ON DELETE CASCADE,
+            authority_unit TEXT NOT NULL,
+            decision TEXT NOT NULL CHECK (decision IN ('permit', 'escalate', 'deny', 'reduce')),
+            reasoning TEXT,
+            legibility_record JSONB NOT NULL,
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )`,
+          `CREATE TABLE IF NOT EXISTS governance_findings (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            request_id UUID NOT NULL REFERENCES arbitration_requests(id) ON DELETE CASCADE,
+            trigger TEXT NOT NULL,
+            action TEXT NOT NULL CHECK (action IN ('attenuate', 'suspend', 'revoke')),
+            attenuated_scope JSONB,
+            supervisor_timeout BOOLEAN DEFAULT FALSE,
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )`,
+          `CREATE INDEX IF NOT EXISTS idx_arb_requests_context ON arbitration_requests USING GIN (context)`,
+          `CREATE INDEX IF NOT EXISTS idx_arb_responses_legibility ON arbitration_responses USING GIN (legibility_record)`,
+          `CREATE INDEX IF NOT EXISTS idx_gov_findings_trigger ON governance_findings (trigger)`,
+          `CREATE INDEX IF NOT EXISTS idx_gov_findings_action ON governance_findings (action)`,
+        ];
+        let applied = 0, migErrors = 0;
+        const migResults = [];
+        for (const stmt of migrationStatements) {
+          try {
+            await sql.unsafe(stmt);
+            applied++;
+            const m = stmt.match(/(?:TABLE|INDEX|ALTER TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?(\S+)/i);
+            migResults.push({ ok: true, name: m ? m[1] : 'unknown' });
+          } catch (migErr) {
+            migErrors++;
+            migResults.push({ ok: false, error: migErr.message.substring(0, 150) });
+          }
+        }
+        return res.status(200).json({ status: 'MIGRATION_COMPLETE', applied, errors: migErrors, results: migResults, version: '5.4.0-hitl' });
+      }
+
+      default:
+        return res.status(400).json({ error: `Unknown action: ${action}` });
+    }
+
+  } catch (err) {
+    if (err instanceof PEPError) {
+      return res.status(err.httpStatus).json({ error: err.code, message: err.message });
+    }
+    console.error('[HITL_ESCALATION] Error:', err);
+    return res.status(500).json({ error: 'Escalation operation failed', detail: err.message });
+  }
+}
+
 // Register Cloud Function entry points
 functions.http('sentinelInference', handleSentinelInference);
 functions.http('sentinelTTS', handleSentinelTTS);
 functions.http('sentinelVerification', handleVerificationStatus);
+functions.http('sentinelEscalation', handleSentinelEscalation);

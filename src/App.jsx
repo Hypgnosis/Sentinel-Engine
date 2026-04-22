@@ -24,7 +24,7 @@ import { SentinelClient } from './SentinelClient';
 const translations = {
   en: {
     brand: 'SENTINEL ENGINE',
-    version: 'V5.2 GOVERNANCE',
+    version: 'V5.3 SOVEREIGN AGNOSTIC',
 
     metrics: {
       bhr: 'Blocked Hallucination Rate',
@@ -125,9 +125,13 @@ const translations = {
       title: 'Ask Sentinel',
       subtitle: 'Governance Intelligence Query — verified against live data',
       placeholder: 'Ask about regulatory exposure, risk posture, compliance gaps, operational resilience...',
-      welcome: 'Sentinel Governance Terminal online. Query any compliance, risk, or operational intelligence.',
+      welcome: 'Sentinel Governance Terminal online. V5.3 Sovereign Agnostic core active.',
       thinking: 'Verifying against live data sources...',
       error: 'PIPELINE STALL — Unable to reach inference layer.',
+      partial: 'CAUTIONARY INSIGHT — DEGRADED RETRIEVAL',
+      verified: 'GROUNDED INTEGRITY — VERIFIED',
+      rejected: 'PROTECTIVE INTERVENTION — LOW SUBSTANCE',
+      hallucination: 'VETOED: SEMANTIC HALLUCINATION',
       voiceOn: 'Voice enabled',
       voiceOff: 'Voice muted',
       listening: 'Listening...',
@@ -141,7 +145,7 @@ const translations = {
   },
   es: {
     brand: 'SENTINEL ENGINE',
-    version: 'V5.2 GOBERNANZA',
+    version: 'V5.3 SOBERANÍA AGNÓSTICA',
 
     metrics: {
       bhr: 'Tasa de Alucinación Bloqueada',
@@ -242,9 +246,13 @@ const translations = {
       title: 'Pregúntale a Sentinel',
       subtitle: 'Consulta de Inteligencia de Gobernanza — verificada con datos en vivo',
       placeholder: 'Pregunta sobre exposición regulatoria, postura de riesgo, brechas de cumplimiento...',
-      welcome: 'Terminal de Gobernanza Sentinel en línea. Consulta cualquier inteligencia de cumplimiento, riesgo u operaciones.',
+      welcome: 'Terminal de Gobernanza Sentinel en línea. Núcleo V5.3 Soberanía Agnóstica activo.',
       thinking: 'Verificando contra fuentes de datos en vivo...',
       error: 'FALLO EN PIPELINE — No se pudo alcanzar la capa de inferencia.',
+      partial: 'INSIGHT DE PRECAUCIÓN — RECUPERACIÓN DEGRADADA',
+      verified: 'INTEGRIDAD FUNDAMENTADA — VERIFICADO',
+      rejected: 'INTERVENCIÓN PROTECTORA — BAJA SUSTANCIA',
+      hallucination: 'VETO: ALUCINACIÓN SEMÁNTICA',
       voiceOn: 'Voz activada',
       voiceOff: 'Voz silenciada',
       listening: 'Escuchando...',
@@ -1074,13 +1082,17 @@ const QueryTerminal = ({ t, attackActive }) => {
         ts: ts(),
       }]);
 
-      // Speak the response (Cloud TTS if available, else browser TTS)
+      // Speak the response
       speakResponse(result.narrative, result.audioBase64);
     } catch (err) {
+      const isIntegrityRejection = err.code === 'INTEGRITY_GATE_REJECTION';
+      
       setMessages(prev => [...prev, {
         id: uid(),
         role: 'error',
-        content: `${t.terminal.error} ${err.message}`,
+        content: isIntegrityRejection 
+          ? `[${t.terminal.rejected}] ${err.message}` 
+          : `${t.terminal.error} ${err.message}`,
         ts: ts(),
       }]);
     }
@@ -1220,11 +1232,25 @@ const QueryTerminal = ({ t, attackActive }) => {
                           ))}
                         </div>
                       )}
-                      {msg.verificationStatus && (
-                        <div className="mt-2 flex items-center gap-1.5">
+                      {msg.verificationStatus === 'PARTIAL' ? (
+                        <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded bg-warning/10 border border-warning/20">
+                          <ShieldAlert className="w-3 h-3 text-warning" />
+                          <span className="text-[8px] font-mono text-warning tracking-wider uppercase font-bold">
+                            {t.terminal.partial} — C_{msg.confidence?.toFixed(2) || '0.50'}
+                          </span>
+                        </div>
+                      ) : msg.verificationStatus === 'verified' || msg.verificationStatus === 'VERIFIED' ? (
+                        <div className="mt-2 flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-success/10 border border-success/20">
                           <ShieldCheck className="w-3 h-3 text-success" />
-                          <span className="text-[8px] font-mono text-success tracking-wider">
-                            VERIFIED — {msg.dataAuthority || 'GCP_BIGQUERY'}
+                          <span className="text-[8px] font-mono text-success tracking-wider font-bold">
+                            {t.terminal.verified} — {msg.dataAuthority || 'GCP_BIGQUERY'}
+                          </span>
+                        </div>
+                      ) : msg.verificationStatus === 'HALLUCINATION_FLAGGED' && (
+                        <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded bg-danger/10 border border-danger/20">
+                          <XCircle className="w-3 h-3 text-danger" />
+                          <span className="text-[8px] font-mono text-danger tracking-wider uppercase font-bold">
+                            {t.terminal.hallucination}
                           </span>
                         </div>
                       )}

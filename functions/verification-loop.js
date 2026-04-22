@@ -1,20 +1,28 @@
 /**
- * SENTINEL ENGINE V4.9-RC — Adversarial NLI Verification Loop
+ * SENTINEL ENGINE V5.4 — Adversarial NLI Verification Loop
  * ═══════════════════════════════════════════════════════════════
- * "The Prosecutor" — Asynchronous sidecar verification.
+ * "The Prosecutor" — Governed Escalation Sidecar.
  *
  * After primary Gemini inference completes, this module fires an
- * async call to a lightweight model (gemini-2.0-flash-lite) that
+ * async call to a lightweight model (gemini-2.5-flash) that
  * acts as a fact-checking adversary. It identifies semantic
  * contradictions between the generated narrative and the source
  * context logs.
  *
- * The primary API response is NEVER blocked by verification.
- * Results are stored in Postgres for async polling.
+ * V5.4 CHANGES:
+ *   - HIGH_IMPACT rejections now trigger JIT Escalation Requests
+ *     instead of just logging. The escalation routes to the
+ *     Standing Authority Matrix for human review.
+ *   - Non-high-impact rejections continue with existing fire-and-
+ *     forget logging pattern.
+ *   - Verification results now carry an escalation_id link.
  * ═══════════════════════════════════════════════════════════════
  */
 
 const { getSql } = require('./db');
+const { EscalationEngine } = require('./escalation-engine');
+const { AuthorityUnit, globalGraphRegistry } = require('./authority-graph/unit');
+const { ArbitrationInterface } = require('./authority-graph/arbitration');
 
 const SIDECAR_MODEL = 'gemini-2.5-flash';
 
@@ -83,6 +91,7 @@ async function ensureVerificationTable() {
         sidecar_model TEXT,
         verified_at TIMESTAMPTZ DEFAULT NOW(),
         latency_ms INTEGER,
+        escalation_id TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `;
@@ -90,7 +99,6 @@ async function ensureVerificationTable() {
     console.log('[VERIFICATION_LOOP] Table verification_results ensured.');
   } catch (err) {
     console.warn('[VERIFICATION_LOOP] Table creation skipped:', err.message);
-    // Table might already exist or we don't have DDL perms — not fatal
     _tableEnsured = true;
   }
 }
@@ -99,7 +107,7 @@ async function ensureVerificationTable() {
 //  STORE VERIFICATION RESULT
 // ─────────────────────────────────────────────────────
 
-async function storeVerificationResult(requestId, tenantId, result, latencyMs) {
+async function storeVerificationResult(requestId, tenantId, result, latencyMs, escalationId = null) {
   const sql = getSql();
   if (!sql) {
     console.warn('[VERIFICATION_LOOP] Cannot store result — DB unavailable.');
@@ -108,7 +116,10 @@ async function storeVerificationResult(requestId, tenantId, result, latencyMs) {
 
   try {
     await sql`
-      INSERT INTO verification_results (request_id, tenant_id, is_verified, discrepancies, verification_notes, sidecar_model, latency_ms)
+      INSERT INTO verification_results (
+        request_id, tenant_id, is_verified, discrepancies,
+        verification_notes, sidecar_model, latency_ms, escalation_id
+      )
       VALUES (
         ${requestId},
         ${tenantId},
@@ -116,16 +127,18 @@ async function storeVerificationResult(requestId, tenantId, result, latencyMs) {
         ${JSON.stringify(result.discrepancies || [])},
         ${result.verificationNotes || ''},
         ${SIDECAR_MODEL},
-        ${latencyMs}
+        ${latencyMs},
+        ${escalationId}
       )
       ON CONFLICT (request_id) DO UPDATE SET
         is_verified = EXCLUDED.is_verified,
         discrepancies = EXCLUDED.discrepancies,
         verification_notes = EXCLUDED.verification_notes,
         verified_at = NOW(),
-        latency_ms = EXCLUDED.latency_ms
+        latency_ms = EXCLUDED.latency_ms,
+        escalation_id = EXCLUDED.escalation_id
     `;
-    console.log(`[VERIFICATION_LOOP] Result stored for ${requestId}: verified=${result.isVerified}`);
+    console.log(`[VERIFICATION_LOOP] Result stored for ${requestId}: verified=${result.isVerified}${escalationId ? ` escalation=${escalationId}` : ''}`);
   } catch (err) {
     console.error(`[VERIFICATION_LOOP] Failed to store result for ${requestId}:`, err.message);
   }
@@ -147,13 +160,69 @@ async function storeVerificationResult(requestId, tenantId, result, latencyMs) {
  * @param {string} params.sourceContext - RAG source logs
  * @returns {Promise<void>}
  */
-async function launchVerificationSidecar({ genaiClient, requestId, tenantId, narrative, sourceContext }) {
+/**
+ * Launches the Prosecutor sidecar.
+ *
+ * V5.4 ESCALATION INTEGRATION:
+ *   When verdict.isVerified === false AND impactLevel === 'HIGH_IMPACT',
+ *   the Prosecutor triggers a JIT Escalation Request via the
+ *   EscalationEngine. The escalation routes to the Standing Authority
+ *   Matrix for human review.
+ *
+ * @param {object} params
+ * @param {object} params.genaiClient - Google GenAI client
+ * @param {string} params.requestId - Unique request identifier
+ * @param {string} params.tenantId - Tenant context
+ * @param {string} params.narrative - Generated narrative from primary model
+ * @param {string} params.sourceContext - RAG source logs
+ * @param {string} [params.impactLevel] - HIGH_IMPACT, STANDARD, LOW (V5.4)
+ * @param {string} [params.queryClassification] - SENSITIVE, PROCEDURAL, GENERAL (V5.4)
+ * @param {import('./security-manager').SecurityManager} [params.securityManager] - For escalation (V5.4)
+ * @returns {Promise<object>} Verdict with optional escalation info
+ */
+async function launchVerificationSidecar({
+  genaiClient, requestId, tenantId, narrative, sourceContext,
+  impactLevel, queryClassification, securityManager,
+}) {
   const t0 = Date.now();
 
   try {
     await ensureVerificationTable();
 
-    const userContent = `GENERATED NARRATIVE:\n${narrative}\n\nSOURCE LOGS:\n${sourceContext}`;
+    // ═══ V5.4.1 SOVEREIGN AIR GAP: PII Tokenization ═══
+    // Before ANY data leaves the sovereign data plane to a public LLM API,
+    // we apply HMAC-SHA256 one-way peppering to the Pristine Data.
+    // This mathematically guarantees that SSNs, credit cards, patient IDs,
+    // and subject identifiers are irreversibly anonymized.
+    //
+    // The Prosecutor can still reason about semantic contradictions
+    // (e.g., "the narrative claims X but the source says Y") because
+    // the structural context is preserved — only the raw PII values
+    // are replaced with deterministic hash tokens.
+    //
+    // Residual Risk (per Auditor): Over-anonymization may degrade
+    // explainability if the Prosecutor cannot parse tokenized fields.
+    // Monitor verification quality metrics quarterly.
+    let sanitizedContext = sourceContext;
+    if (securityManager && sourceContext) {
+      try {
+        sanitizedContext = await securityManager.tokenizePII(sourceContext, tenantId);
+        console.log(`[VERIFICATION_LOOP] Pristine Data tokenized for request ${requestId}. Sovereign air gap enforced.`);
+      } catch (tokenErr) {
+        // FAIL-CLOSED: If tokenization fails, do NOT send raw PII to public API.
+        console.error(JSON.stringify({
+          severity: 'CRITICAL',
+          eventType: 'PII_TOKENIZATION_FAILED',
+          requestId,
+          tenantId,
+          error: tokenErr.message,
+          message: `[VERIFICATION_LOOP] PII tokenization FAILED for ${requestId}. Sidecar will receive REDACTED context to prevent data exfiltration.`,
+        }));
+        sanitizedContext = '[REDACTED: PII tokenization failed — sovereign air gap enforced]';
+      }
+    }
+
+    const userContent = `GENERATED NARRATIVE:\n${narrative}\n\nSOURCE LOGS:\n${sanitizedContext}`;
 
     const result = await genaiClient.models.generateContent({
       model: SIDECAR_MODEL,
@@ -177,31 +246,99 @@ async function launchVerificationSidecar({ genaiClient, requestId, tenantId, nar
     const latencyMs = Date.now() - t0;
     console.log(`[VERIFICATION_LOOP] Prosecutor completed in ${latencyMs}ms. Verified: ${verdict.isVerified}`);
 
-    // ═══ V5.0 AUDIT REMEDY: Close the Loop ═══
-    // If the Prosecutor finds hallucinations, emit a structured log
-    // that triggers a Cloud Monitoring alert. The user may have already
-    // received the response — this creates the audit trail.
-    if (verdict.isVerified === false) {
+    // ═══ V5.5 AGS: Prosecutor Integration into Authority Graph ═══
+    // We map the semantic check formally into the AuthorityUnit conditions.
+    const sidecarActionUnit = new AuthorityUnit({
+      id: `VERIFICATION_UNIT_${requestId}`,
+      scope: {
+        decision_type: 'generate_response',
+        domain: queryClassification || 'GENERAL',
+        conditions: [
+          // The semantic contradiction check is now a formal AGS condition
+          function PROSECUTOR_SEMANTIC_CHECK(ctx) {
+            return ctx.verdict.isVerified !== false;
+          }
+        ]
+      },
+      provenance: { chain: ['ROOT', `VERIFICATION_UNIT_${requestId}`] }
+    });
+
+    const arbitrationRecord = await ArbitrationInterface.evaluateDecision({
+      request_id: requestId,
+      action: { source_unit_id: sidecarActionUnit.id, domain: queryClassification || 'GENERAL' },
+      context: { verdict },
+      asymmetricKms: null // Semantic checks do not require irreversible audit ledger generation themselves
+    });
+
+    // ═══ V5.5 GOVERNED ESCALATION: Close the Loop ═══
+    // If the AGS denies due to conditions (Prosecutor found hallucination), we escalate.
+    let escalationResult = null;
+
+    if (arbitrationRecord.status !== 'PERMIT') {
       console.error(JSON.stringify({
         severity: 'CRITICAL',
-        eventType: 'HALLUCINATION_DETECTED',
+        eventType: 'AGS_ARBITRATION_DENIED',
         requestId,
         tenantId,
+        impactLevel: impactLevel || 'UNKNOWN',
+        reason: arbitrationRecord.status,
         discrepancyCount: verdict.discrepancies?.length || 0,
         discrepancies: verdict.discrepancies,
         verificationNotes: verdict.verificationNotes,
         latencyMs,
-        message: `[HALLUCINATION_DETECTED] Prosecutor flagged ${verdict.discrepancies?.length || 0} discrepancy(ies) for request ${requestId}. Audit trail recorded.`,
+        message: `[AGS_ARBITRATION_DENIED] AGS Evaluation failed for request ${requestId} due to ${arbitrationRecord.status}.`,
       }));
+
+      // V5.5: HIGH_IMPACT / UTILITY_CRITICAL rejections → JIT Escalation to Named Human Approver
+      if ((impactLevel === 'HIGH_IMPACT' || impactLevel === 'UTILITY_CRITICAL') && securityManager) {
+        try {
+          const escalationEngine = new EscalationEngine(securityManager);
+          escalationResult = await escalationEngine.createEscalation({
+            requestId,
+            tenantId,
+            narrative,
+            sourceContext,
+            prosecutorVerdict: verdict,
+            impactLevel,
+            queryClassification: queryClassification || 'SENSITIVE',
+          });
+
+          verdict._escalation = {
+            escalationId: escalationResult.escalationId,
+            authorityId: escalationResult.authorityId,
+            authorityName: escalationResult.authorityName,
+            authorityRole: escalationResult.authorityRole,
+            blastRadius: escalationResult.blastRadius,
+            ttlExpiresAt: escalationResult.ttlExpiresAt,
+            status: 'ESCALATION_PENDING',
+          };
+
+          console.log(`[VERIFICATION_LOOP] JIT Escalation created: ${escalationResult.escalationId} (${escalationResult.latencyMs}ms).`);
+        } catch (escErr) {
+          console.error(JSON.stringify({
+            severity: 'CRITICAL',
+            eventType: 'ESCALATION_CREATION_FAILED',
+            requestId,
+            tenantId,
+            error: escErr.message,
+            message: `[ESCALATION_FAILED] Could not create JIT escalation for ${requestId}. Defaulting to BLOCKED.`,
+          }));
+          // Escalation failure → fail-closed → BLOCKED
+          verdict._escalation = { status: 'ESCALATION_FAILED_BLOCKED' };
+        }
+      }
     }
 
     if (verdict.discrepancies && verdict.discrepancies.length > 0) {
       verdict.discrepancies.forEach((d, i) => console.warn(`  [${i + 1}] ${d}`));
     }
 
-    await storeVerificationResult(requestId, tenantId, verdict, latencyMs);
+    await storeVerificationResult(
+      requestId, tenantId, verdict, latencyMs,
+      escalationResult?.escalationId || null
+    );
 
-    // Return verdict so synchronous callers (HIGH_SENSITIVITY queries)
+    // Return verdict so synchronous callers (SENSITIVE queries)
     // can include it in the response BEFORE the HTTP 200 is sent.
     return verdict;
   } catch (err) {
@@ -222,8 +359,7 @@ async function launchVerificationSidecar({ genaiClient, requestId, tenantId, nar
       isVerified: null,
       discrepancies: [`VERIFICATION_ERROR: ${err.message}`],
       verificationNotes: 'Sidecar execution failed.',
-    }, latencyMs).catch(storeErr => {
-      // DB is also down — emit structured log for this too
+    }, latencyMs, null).catch(storeErr => {
       console.error(JSON.stringify({
         severity: 'CRITICAL',
         eventType: 'VERIFICATION_STORE_FAILURE',
