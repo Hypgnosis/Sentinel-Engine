@@ -6,7 +6,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
-const { globalGraphRegistry } = require('./unit');
+const { globalUnitLoader } = require('./unit');
 const crypto = require('crypto');
 
 class ArbitrationInterface {
@@ -21,7 +21,7 @@ class ArbitrationInterface {
    * @returns {Promise<object>} Legibility Record
    */
   static async evaluateDecision({ request_id, action, context, asymmetricKms }) {
-    const { source_unit_id, target_unit_id, domain } = action;
+    const { source_unit_id, target_unit_id, domain, tenant_id } = action;
 
     const record = {
       decision_id: crypto.randomUUID(),
@@ -36,8 +36,11 @@ class ArbitrationInterface {
       metadata: { context_keys: Object.keys(context) }
     };
 
-    const sourceUnit = globalGraphRegistry.get(source_unit_id);
-    if (!sourceUnit) {
+    let sourceUnit;
+    try {
+      sourceUnit = await globalUnitLoader.loadGraph(source_unit_id, tenant_id || 'SYSTEM');
+    } catch (err) {
+      console.warn(`[ARBITRATION] Failed to hydrate source unit: ${err.message}`);
       record.status = 'DENIED_NO_AMBIENT_AUTHORITY';
       return await this.finalize(record, asymmetricKms);
     }
@@ -46,7 +49,12 @@ class ArbitrationInterface {
     try {
       // 1. Pairwise/Composition Contract
       if (target_unit_id) {
-        const targetUnit = globalGraphRegistry.get(target_unit_id);
+        let targetUnit;
+        try {
+          targetUnit = await globalUnitLoader.loadGraph(target_unit_id, tenant_id || 'SYSTEM');
+        } catch (err) {
+          // pass
+        }
         if (targetUnit) {
           record.contracts_traversed.push('PAIRWISE_CONTRACT');
           // Dummy pairwise resolution logic

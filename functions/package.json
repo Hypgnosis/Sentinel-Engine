@@ -1,7 +1,7 @@
 {
   "name": "sentinel-engine-core",
-  "version": "5.4.0-hitl",
-  "description": "Sentinel Engine — Conditional Execution Layer (Cloud Function, V5.4 HITL)",
+  "version": "5.5.0-sovereign",
+  "description": "Sentinel Engine — Conditional Execution Layer (Cloud Function, V5.5 Sovereign)",
   "main": "index.js",
   "engines": {
     "node": ">=20"

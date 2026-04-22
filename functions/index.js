@@ -540,90 +540,8 @@ function pristineRace(pgPromise, bqPromise) {
   });
 }
 
-// ─────────────────────────────────────────────────────
-//  SHADOW CLASSIFIER — Pessimistic Sensitivity Gate (V5.2)
-// ─────────────────────────────────────────────────────
-
-const SHADOW_CLASSIFIER_MODEL = 'gemini-2.0-flash-lite';
-
-/**
- * Fires a 10-token prompt to classify query sensitivity BEFORE primary
- * inference. Determines whether The Prosecutor must synchronously verify.
- * Output includes an industry domain classification as well.
- *
- * Returns: { classification: 'SENSITIVE'|'PROCEDURAL'|'GENERAL', domain: 'LOGISTICS'|'ENERGY'|'UNKNOWN' }
- *
- * V5.2 FAIL-CLOSED POLICY:
- * If the classifier fails (timeout, network, quota), OR returns an
- * ambiguous result, it defaults to 'SENSITIVE'.
- *
- * @param {GoogleGenAI} genai - AI client
- * @param {string} query - User query
- * @returns {Promise<{classification: string, domain: string}>} Classification result
- */
-async function classifyQuerySensitivity(genai, query) {
-  try {
-    const result = await genai.models.generateContent({
-      model: SHADOW_CLASSIFIER_MODEL,
-      contents: `Classify this query. You must output valid JSON.
-Fields:
-"classification": Exactly one of "SENSITIVE", "PROCEDURAL", "GENERAL".
-"domain": Exactly one of "LOGISTICS", "ENERGY", "UNKNOWN".
-"impactLevel": Exactly one of "UTILITY_CRITICAL", "HIGH_IMPACT", "STANDARD", "LOW".
-  - UTILITY_CRITICAL: Physical safety, grid stability, power distribution, water treatment, life-safety systems. Blocking these causes catastrophic real-world harm (blackouts, floods, loss of life).
-  - HIGH_IMPACT: Grid-level changes, infrastructure decisions, financial commitments, safety-critical operations.
-  - STANDARD: Routine operational queries, status checks, trend analysis.
-  - LOW: Informational, non-actionable queries.
-Query: ${query}`,
-      config: {
-        temperature: 0.0,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-             classification: { type: 'STRING', enum: ['SENSITIVE', 'PROCEDURAL', 'GENERAL'] },
-             domain: { type: 'STRING', enum: ['LOGISTICS', 'ENERGY', 'UNKNOWN'] },
-             impactLevel: { type: 'STRING', enum: ['UTILITY_CRITICAL', 'HIGH_IMPACT', 'STANDARD', 'LOW'] }
-          },
-          required: ['classification', 'domain', 'impactLevel']
-        },
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    });
-    const rawText = (result.text || '').trim();
-    const parsed = JSON.parse(rawText);
-    
-    // Resilience Failure Patch: If domain is UNKNOWN, default to SENSITIVE
-    let classification = parsed.classification || 'SENSITIVE';
-    const domain = parsed.domain || 'UNKNOWN';
-    // V5.4: impactLevel is a SEPARATE dimension from classification.
-    // A query can be SENSITIVE (PII) without being HIGH_IMPACT (grid-level).
-    // This prevents "Sensitivity Inflation" and supervisor fatigue.
-    let impactLevel = parsed.impactLevel || 'STANDARD';
-
-    if (domain === 'UNKNOWN') {
-       classification = 'SENSITIVE';
-    }
-
-    // FAIL-CLOSED for impact: UNKNOWN domain → HIGH_IMPACT
-    if (domain === 'UNKNOWN' && impactLevel === 'LOW') {
-      impactLevel = 'STANDARD';
-    }
-
-    // V5.4.1: UTILITY_CRITICAL is only valid for ENERGY domain.
-    // Prevents classification inflation from non-utility queries.
-    if (impactLevel === 'UTILITY_CRITICAL' && domain !== 'ENERGY') {
-      console.warn(`[SHADOW_CLASSIFIER] UTILITY_CRITICAL downgraded to HIGH_IMPACT — domain is ${domain}, not ENERGY.`);
-      impactLevel = 'HIGH_IMPACT';
-    }
-
-    return { classification, domain, impactLevel };
-  } catch (err) {
-    // FAIL-CLOSED: Classifier down → treat as SENSITIVE + HIGH_IMPACT → mandatory sync audit + escalation.
-    console.warn(`[SHADOW_CLASSIFIER] FAIL-CLOSED: ${err.message}. Defaulting to SENSITIVE/UNKNOWN/HIGH_IMPACT.`);
-    return { classification: 'SENSITIVE', domain: 'UNKNOWN', impactLevel: 'HIGH_IMPACT' };
-  }
-}
+// SHADOW CLASSIFIER REMOVED IN V5.5 "Absolute" Hardening
+// Classification and reasoning are now unified into a single atomic pass.
 
 // ─────────────────────────────────────────────────────
 //  ENTRY POINT: SENTINEL INFERENCE (V5.0 Sovereign)
@@ -638,6 +556,7 @@ Query: ${query}`,
  */
 async function handleSentinelInference(req, res) {
   const requestId = `SEN-${Date.now()}`;
+  res.set('X-Sentinel-Version', '5.5.0-Sovereign');
   const t0 = Date.now();
   const trace = {};
   if (handleCORS(req, res)) return;
@@ -676,12 +595,16 @@ async function handleSentinelInference(req, res) {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Empty Query', requestId });
 
-    // V5.1: Shadow Classifier — determine query sensitivity BEFORE inference
+    // V5.5: Single-Pass Atomic Inference removes the Shadow Classifier
     const tClassify0 = Date.now();
-    const classificationResult = await classifyQuerySensitivity(genai, query);
-    const queryClassification = classificationResult.classification;
-    const industryDomain = classificationResult.domain;
-    const impactLevel = classificationResult.impactLevel; // V5.4: separate dimension
+    
+    // Domain is pre-determined via configuration instead of dynamic multi-pass
+    const industryDomain = INSTANCE_CONFIG.industry === 'Energy & Utilities' ? 'ENERGY' : 
+                           INSTANCE_CONFIG.industry === 'Logistics & Supply Chain' ? 'LOGISTICS' : 'UNKNOWN';
+    
+    let queryClassification = 'UNKNOWN'; // Resolved post-inference
+    let impactLevel = 'UNKNOWN'; // Resolved post-inference
+    
     trace.classification = Date.now() - tClassify0;
     trace.queryClass = queryClassification;
     trace.industryDomain = industryDomain;
@@ -814,6 +737,8 @@ async function handleSentinelInference(req, res) {
       const tGen0 = Date.now();
       
       let systemPrompt = '';
+      const arbiterSystemInstruction = require('./arbiter-kernel').systemInstruction;
+
       if (industryDomain === 'UNKNOWN') {
         const BASE_DOMAIN_PROMPT = `SYSTEM: Sentinel v5.0 Sovereign Fortress.
 STATUS: UNIVERSAL BASELINE ACTIVE.
@@ -828,10 +753,11 @@ OPERATIONAL CONTEXT:
 ${contextPayload}
 
 OUTPUT FORMAT: Strict JSON matching the specified Response Schema.`;
-        systemPrompt = BASE_DOMAIN_PROMPT;
+        systemPrompt = `${arbiterSystemInstruction}\n\n${BASE_DOMAIN_PROMPT}`;
       } else {
-        systemPrompt = buildInstanceSystemPrompt(INSTANCE_CONFIG, contextPayload, dataAuthority)
+        const instancePrompt = buildInstanceSystemPrompt(INSTANCE_CONFIG, contextPayload, dataAuthority)
           || `SYSTEM: Sentinel v5.0 Sovereign Fortress. Context: ${contextPayload}`;
+        systemPrompt = `${arbiterSystemInstruction}\n\n${instancePrompt}`;
       }
       
       const modelId = selectModel(query, INSTANCE_CONFIG);
@@ -906,9 +832,16 @@ OUTPUT FORMAT: Strict JSON matching the specified Response Schema.`;
       trace.generation = Date.now() - tGen0;
 
       // Backward-compat: Flatten executiveAction into top-level for existing clients
-      data.narrative = data.executiveAction?.narrative || data.narrative || '';
+      data.narrative = data.executiveAction?.narrative || data.executiveAction?.rationale || data.narrative || '';
       data.metrics = data.executiveAction?.metrics || data.metrics || [];
       data.dataAuthority = dataAuthority;
+
+      // Extract atomic classification dynamically from single-pass
+      queryClassification = data.executiveAction?.classification || 'SENSITIVE';
+      impactLevel = data.executiveAction?.classification === 'HIGH_IMPACT' ? 'HIGH_IMPACT' : 'STANDARD';
+      
+      trace.queryClass = queryClassification;
+      trace.impactLevel = impactLevel;
 
       // Confidence Gate
       if (typeof data.confidence !== 'number' || data.confidence < 0 || data.confidence > 1) {

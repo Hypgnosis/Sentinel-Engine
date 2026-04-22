@@ -38,34 +38,26 @@ let _sql = null;
 function getSql() {
   if (_sql) return _sql;
 
-  const pGhost = (process.env.PGHOST || '127.0.0.1').trim();
-  const pGuser = (process.env.PGUSER || 'postgres').trim();
-  const pGpassword = (process.env.PGPASSWORD || 'postgres').trim();
-  const pGdatabase = (process.env.PGDATABASE || 'sentinel_reservoir').trim();
+  const dbUrl = process.env.DATABASE_URL;
+  
+  if (!dbUrl) {
+    throw new Error('FATAL_CONFIG_FAILURE: DATABASE_URL is missing from environment.');
+  }
 
   // Detect Cloud SQL Unix socket connection (path contains /cloudsql/)
-  const isUnixSocket = pGhost.includes('/cloudsql/');
+  const isUnixSocket = dbUrl.includes('/cloudsql/');
   const connectionMode = isUnixSocket ? 'CLOUD_SQL_SOCKET' : 'TCP_PROXY';
   console.log(`[DB_INIT] Initializing Postgres pool. Mode: ${connectionMode}`);
 
   let connectionOptions = {
-    host: pGhost,
-    username: pGuser,
-    password: pGpassword,
-    database: pGdatabase,
     max: 50,
     idle_timeout: 30,
     connect_timeout: 5,
     max_lifetime: 1800,
+    ssl: isUnixSocket ? false : require('url').parse(dbUrl).hostname !== '127.0.0.1' && require('url').parse(dbUrl).hostname !== 'localhost' ? 'require' : false
   };
 
-  if (isUnixSocket) {
-    connectionOptions.ssl = false; // Unix sockets are VPC-encrypted
-  } else {
-    connectionOptions.ssl = false; // TCP via Cloud SQL Proxy does not use SSL locally
-  }
-  
-  _sql = postgres(connectionOptions);
+  _sql = postgres(dbUrl, connectionOptions);
   return _sql;
 }
 

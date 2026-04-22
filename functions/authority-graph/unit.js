@@ -3,33 +3,19 @@
  * ═══════════════════════════════════════════════════════════════
  * The Authority Unit Schema
  * Encapsulates formal decision boundaries.
+ * 
+ * Hardening: "Amnesia Flaw" fixed via Contextual Factory.
  * ═══════════════════════════════════════════════════════════════
  */
 
-// Simulating a graph state lookup for provenance
-const globalGraphRegistry = new Map();
+const { getSql } = require('../db');
 
 class AuthorityUnit {
   /**
    * @param {object} params 
-   * @param {string} params.id Unique identified
-   * @param {object} params.scope 
-   * @param {string} params.scope.decision_type Class of decisions (e.g. "refund_approval")
-   * @param {string} params.scope.domain Entities covered (e.g. "transactions")
-   * @param {string[]} [params.scope.conditions] Evaluable predicates (e.g. NLI prosecutor checks)
-   * @param {object[]} [params.scope.limits] Boundaries/thresholds (e.g. { metric: "amount", max: 5000 })
-   * @param {object} [params.delegation] Delegation constraints
-   * @param {string|null} [params.delegation.granted_by] Reference to grantor Unit ID
-   * @param {object} [params.delegation.contract] Terms
-   * @param {boolean} [params.delegation.re_delegation] Further delegation permitted
-   * @param {object} params.termination
-   * @param {number|null} [params.termination.expiry] Unix timestamp
-   * @param {string[]} [params.termination.revocation_triggers] Event types that revoke this 
-   * @param {object} params.provenance
-   * @param {string[]} params.provenance.chain Path to root authority
-   * @param {boolean} params.provenance.verifiable Cryptographic verification flag
+   * @param {Map} registry Local registry of hydrated units for validation
    */
-  constructor(params) {
+  constructor(params, registry) {
     this.id = params.id;
     
     this.scope = {
@@ -56,18 +42,15 @@ class AuthorityUnit {
       signature: params.provenance?.signature || null
     };
 
-    // No Ambient Authority: component cannot exist outside graph
-    globalGraphRegistry.set(this.id, this);
-
-    this.validateProvenance();
-    this.validateMonotonicAttenuation();
+    this.validateProvenance(registry);
+    this.validateMonotonicAttenuation(registry);
   }
 
   /**
    * Provenance Completeness:
    * Every non-root unit must have a chain terminating at a root authority.
    */
-  validateProvenance() {
+  validateProvenance(registry) {
     // A root authority grants itself
     if (this.delegation.granted_by === null || this.delegation.granted_by === 'ROOT') {
       if (this.provenance.chain[this.provenance.chain.length - 1] !== 'ROOT' &&
@@ -81,7 +64,7 @@ class AuthorityUnit {
       throw new Error(`[AGS_VIOLATION] Provenance Completeness Failed: Non-root unit ${this.id} lacks valid root chain.`);
     }
 
-    const grantor = globalGraphRegistry.get(this.delegation.granted_by);
+    const grantor = registry.get(this.delegation.granted_by);
     if (!grantor) {
       throw new Error(`[AGS_VIOLATION] Undefined Grantor: Unit ${this.id} references non-existent grantor ${this.delegation.granted_by}. No Ambient Authority permitted.`);
     }
@@ -93,10 +76,10 @@ class AuthorityUnit {
    * Monotonic Attenuation:
    * Delegated scope must be equal to or narrower than the grantor's scope on every dimension.
    */
-  validateMonotonicAttenuation() {
+  validateMonotonicAttenuation(registry) {
     if (!this.delegation.granted_by || this.delegation.granted_by === 'ROOT') return true;
 
-    const grantor = globalGraphRegistry.get(this.delegation.granted_by);
+    const grantor = registry.get(this.delegation.granted_by);
     if (!grantor) return false;
 
     // Check Domains (e.g. Grantor cannot grant ENERGY if they only own LOGISTICS, unless Grantor is SYSTEM)
@@ -146,7 +129,90 @@ class AuthorityUnit {
   }
 }
 
+/**
+ * UnitLoader (Contextual Factory Pattern)
+ * Hydrates AuthorityUnits and their entire provenance chain from PostgreSQL.
+ */
+class UnitLoader {
+  constructor() {
+    this.cache = new Map(); // Short-Lived Cache
+    this.TTL_MS = 300000;   // 5 minutes
+  }
+
+  /**
+   * Fetches an AuthorityUnit by ID, hydrating its entire chain.
+   */
+  async loadGraph(unitId, tenantId) {
+    const cacheKey = `${tenantId}:${unitId}`;
+    
+    // 1. Check Short-Lived Cache (Performance Hack)
+    if (this.cache.has(cacheKey)) {
+      const cached = this.cache.get(cacheKey);
+      if (Date.now() - cached.timestamp < this.TTL_MS) {
+         return cached.unit;
+      }
+    }
+
+    const sql = getSql();
+    
+    // 2. Fetch the Provenance Chain (Recursive CTE)
+    // Pulls from child (unitId) up to the ROOT
+    const rows = await sql`
+      WITH RECURSIVE provenance_chain AS (
+          SELECT * FROM standing_authority_matrix 
+          WHERE unit_id = ${unitId} AND tenant_id = ${tenantId}
+          UNION ALL
+          SELECT sam.* FROM standing_authority_matrix sam
+          INNER JOIN provenance_chain pc ON sam.unit_id = pc.grantor_id
+          WHERE sam.tenant_id = ${tenantId}
+      )
+      SELECT * FROM provenance_chain;
+    `;
+
+    if (!rows || rows.length === 0) {
+      throw new Error(`[AGS_VIOLATION] UnitLoader: Unit ${unitId} not found for tenant ${tenantId}.`);
+    }
+
+    // 3. Hydrate Graph Top-Down
+    // Reverse to process ROOT first so grantors exist when child validates
+    const reversedRows = [...rows].reverse();
+    const tempRegistry = new Map();
+    let targetUnit = null;
+
+    for (const row of reversedRows) {
+      const config = row.config;
+      
+      const unitParams = {
+        id: row.unit_id,
+        scope: config.scope || {},
+        delegation: config.delegation || {},
+        termination: config.termination || {},
+        provenance: {
+          chain: config.provenance?.chain || [row.unit_id],
+          verifiable: true,
+          signature: row.signature
+        }
+      };
+
+      const unit = new AuthorityUnit(unitParams, tempRegistry);
+      tempRegistry.set(row.unit_id, unit);
+      
+      if (row.unit_id === unitId) {
+        targetUnit = unit;
+      }
+    }
+
+    // 4. Cache and Return
+    this.cache.set(cacheKey, { timestamp: Date.now(), unit: targetUnit });
+    return targetUnit;
+  }
+}
+
+// Instantiate global singleton
+const globalUnitLoader = new UnitLoader();
+
 module.exports = {
   AuthorityUnit,
-  globalGraphRegistry
+  UnitLoader,
+  globalUnitLoader
 };

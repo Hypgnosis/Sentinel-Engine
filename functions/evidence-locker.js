@@ -247,16 +247,21 @@ class EvidenceLocker {
    * Record a formal Arbitration Response.
    */
   async recordArbitrationResponse({ request_id, authority_unit, decision, reasoning, legibility_record }) {
-    await ensureEvidenceTable();
-    const sql = getSql();
-    if (!sql) throw new Error('DB_UNAVAILABLE');
+    try {
+      await ensureEvidenceTable();
+      const sql = getSql();
+      if (!sql) throw new Error('DB_UNAVAILABLE');
 
-    const [row] = await sql`
-      INSERT INTO arbitration_responses (request_id, authority_unit, decision, reasoning, legibility_record)
-      VALUES (${request_id}, ${authority_unit}, ${decision}, ${reasoning}, ${JSON.stringify(legibility_record)})
-      RETURNING id
-    `;
-    return row.id;
+      const [row] = await sql`
+        INSERT INTO arbitration_responses (request_id, authority_unit, decision, reasoning, legibility_record)
+        VALUES (${request_id}, ${authority_unit}, ${decision}, ${reasoning}, ${JSON.stringify(legibility_record)})
+        RETURNING id
+      `;
+      return row.id;
+    } catch (err) {
+      console.error('[EVIDENCE_LOCKER] Critical failure recording arbitration response. Failsafe activated.', err.message);
+      return 'DENY_SYSTEM_FAILURE';
+    }
   }
 
   /**

@@ -76,7 +76,18 @@ const MetricSchema = z.object({
 });
 
 const ExecutiveActionSchema = z.object({
-  narrative: z.string().min(1).describe('Decision summary. No markdown headers.'),
+  classification: z.enum(['SENSITIVE', 'HIGH_IMPACT', 'ROUTINE']).describe('Query classification'),
+  decision: z.enum(['permit', 'deny', 'escalate', 'attenuate']).describe('AGS decision mapping'),
+  rationale: z.string().describe('Reasoning behind the decision'),
+  monotonic_reduction_active: z.boolean().describe('Whether monotonic reduction is active'),
+  eu_ai_act_compliance: z.object({
+    risk_tier: z.enum(['UNACCEPTABLE', 'HIGH', 'LIMITED', 'MINIMAL']),
+    compliance_markers: z.array(z.string()),
+    human_oversight_status: z.enum(['REQUIRED', 'ACTIVE', 'DELEGATED']),
+    transparency_label: z.string()
+  }).describe('EU AI Act compliance markers'),
+  audit_evidence_id: z.string().describe('Cryptographic audit trail ID'),
+  narrative: z.string().optional().describe('Decision summary. No markdown headers.'),
   recommendations: z.array(RecommendationSchema).max(5).default([]),
   metrics: z.array(MetricSchema).max(3).default([]),
 });
@@ -159,18 +170,33 @@ const GEMINI_RESPONSE_SCHEMA = {
       type: 'OBJECT',
       description: 'Executive decision summary.',
       properties: {
-        narrative: { type: 'STRING', description: 'Decision summary in under 150 words. No markdown headers.' },
+        classification: { type: 'STRING', enum: ['SENSITIVE', 'HIGH_IMPACT', 'ROUTINE'] },
+        decision: { type: 'STRING', enum: ['permit', 'deny', 'escalate', 'attenuate'] },
+        rationale: { type: 'STRING' },
+        monotonic_reduction_active: { type: 'BOOLEAN' },
+        eu_ai_act_compliance: {
+          type: 'OBJECT',
+          properties: {
+            risk_tier: { type: 'STRING', enum: ['UNACCEPTABLE', 'HIGH', 'LIMITED', 'MINIMAL'] },
+            compliance_markers: { type: 'ARRAY', items: { type: 'STRING' } },
+            human_oversight_status: { type: 'STRING', enum: ['REQUIRED', 'ACTIVE', 'DELEGATED'] },
+            transparency_label: { type: 'STRING' }
+          },
+          required: ['risk_tier', 'compliance_markers', 'human_oversight_status', 'transparency_label']
+        },
+        audit_evidence_id: { type: 'STRING' },
+        narrative: { type: 'STRING' },
         recommendations: {
           type: 'ARRAY',
           items: {
             type: 'OBJECT',
             properties: {
               action: { type: 'STRING' },
-              priority: { type: 'STRING' },
+              priority: { type: 'STRING', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
               deadline: { type: 'STRING' },
-              confidence: { type: 'NUMBER', minimum: 0, maximum: 1 },
+              confidence: { type: 'NUMBER' },
             },
-            required: ['action'],
+            required: ['action', 'priority'],
           },
         },
         metrics: {
@@ -180,14 +206,14 @@ const GEMINI_RESPONSE_SCHEMA = {
             properties: {
               label: { type: 'STRING' },
               value: { type: 'STRING' },
-              trend: { type: 'STRING' },
-              confidence: { type: 'NUMBER', minimum: 0, maximum: 1 },
+              trend: { type: 'STRING', enum: ['up', 'down', 'stable'] },
+              confidence: { type: 'NUMBER' },
             },
             required: ['label', 'value'],
           },
         },
       },
-      required: ['narrative'],
+      required: ['classification', 'decision', 'rationale', 'monotonic_reduction_active', 'eu_ai_act_compliance', 'audit_evidence_id'],
     },
     confidence: { type: 'NUMBER', minimum: 0, maximum: 1, description: 'Overall confidence as float 0.0-1.0.' },
     sources: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Maximum 3 data sources.' },
