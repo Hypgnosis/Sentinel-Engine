@@ -60,6 +60,7 @@ for (const [name, value] of Object.entries(REQUIRED_SECRETS)) {
 
 // SecurityManager: Initialized at boot — NOT lazily inside request handlers.
 const { SecurityManager, AsymmetricKmsProvider } = require('./security-manager');
+const { MAX_CONTEXT_BYTES, mergeContextSafely } = require('./adapters/context-packer');
 
 /** @type {import('./security-manager').SecurityManager} */
 let _securityManager;
@@ -76,19 +77,23 @@ const vault = {
   }
 };
 
-// Initialize via top-level await for Asymmetric Boot
-try {
-  _securityManager = SecurityManager.create('asymmetric', {
-    privateKeyPem: await vault.getSecret('SENTINEL_PRIVATE_KEY'),
-    publicKeyPem: await vault.getSecret('SENTINEL_PUBLIC_KEY'),
-    encryptionKey: process.env.SENTINEL_ENCRYPTION_KEY
-  });
-} catch (err) {
-  console.error(`[FATAL_SECURITY_BOOT_FAILURE] SecurityManager.create() failed: ${err.message}`);
-  process.exit(1);
-}
-
-console.log('[BOOT_GUARD] All secrets verified. SecurityManager initialized with ASYMMETRIC mode. Container is SECURE.');
+// Initialize via a Promise to avoid top-level await in CJS
+const SECURITY_BOOT_READY = (async () => {
+  try {
+    const privateKeyPem = await vault.getSecret('SENTINEL_PRIVATE_KEY');
+    const publicKeyPem = await vault.getSecret('SENTINEL_PUBLIC_KEY');
+    _securityManager = SecurityManager.create('asymmetric', {
+      privateKeyPem,
+      publicKeyPem,
+      encryptionKey: process.env.SENTINEL_ENCRYPTION_KEY
+    });
+    console.log('[BOOT_GUARD] All secrets verified. SecurityManager initialized with ASYMMETRIC mode.');
+    return true;
+  } catch (err) {
+    console.error(`[FATAL_SECURITY_BOOT_FAILURE] SecurityManager.create() failed: ${err.message}`);
+    process.exit(1);
+  }
+})();
 
 // ─────────────────────────────────────────────────────
 //  MODULE IMPORTS (post-boot-guard)
@@ -117,20 +122,37 @@ const { recursiveSchemaRetry } = require('./recursive-retry');
 const { launchVerificationSidecar, getVerificationStatus } = require('./verification-loop');
 const { swrFetch, circuitBreaker } = require('./swr-cache');
 
-// V5.4: HITL & Escalation Modules
-const { EscalationEngine, addSSEClient } = require('./escalation-engine');
-const { EvidenceLocker } = require('./evidence-locker');
-const { StandingAuthorityMatrix } = require('./authority-matrix');
+// V5.4: HITL & Escalation Modules (Lazy initialization)
 const { WebAuthnProvider } = require('./webauthn-provider');
-const { RollbackEngine } = require('./rollback-engine');
-
-// V5.4: Initialize HITL services at boot
-const _evidenceLocker = new EvidenceLocker(_securityManager);
-const _escalationEngine = new EscalationEngine(_securityManager);
-const _rollbackEngine = new RollbackEngine(_securityManager);
+const { StandingAuthorityMatrix } = require('./authority-matrix');
+let _evidenceLocker = null;
+let _escalationEngine = null;
+let _rollbackEngine = null;
 const _webauthnProvider = new WebAuthnProvider();
+let _bootComplete = false;
 
-console.log('[BOOT_GUARD] V5.4 HITL modules initialized: EvidenceLocker, EscalationEngine, RollbackEngine, WebAuthnProvider.');
+/**
+ * Ensures all security and infrastructure modules are booted.
+ * Awaited at the start of every request handler.
+ */
+async function ensureBoot() {
+  if (_bootComplete) return;
+
+  await SECURITY_BOOT_READY;
+  await BOOT_GUARD_READY;
+  
+  if (!_bootComplete) {
+    const { EvidenceLocker } = require('./evidence-locker');
+    const { EscalationEngine } = require('./escalation-engine');
+    const { RollbackEngine } = require('./rollback-engine');
+    
+    _evidenceLocker = new EvidenceLocker(_securityManager);
+    _escalationEngine = new EscalationEngine(_securityManager);
+    _rollbackEngine = new RollbackEngine(_securityManager);
+    _bootComplete = true;
+    console.log('[BOOT_GUARD] HITL services initialized: EvidenceLocker, EscalationEngine, RollbackEngine.');
+  }
+}
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -390,19 +412,10 @@ async function vectorSearchRetrieval(queryText, embedClient, tenantId) {
   const resultCount = results.reduce((sum, r) => sum + r.rows.length, 0);
   console.log(`[BQ_VECTOR_SUCCESS] tenantId=${tenantId}, resultCount=${resultCount}`);
 
-  // V4.5.2 Hard Limit: 2048 bytes max context payload
-  const MAX_CONTEXT_BYTES = 2048;
-  let fullPayload = sections.join('\n');
+  const fullPayload = sections.join('\n');
   if (fullPayload.length > MAX_CONTEXT_BYTES) {
-    console.warn(`[CONTEXT_CAP] Payload ${fullPayload.length}B exceeds ${MAX_CONTEXT_BYTES}B limit. Truncating.`);
-    fullPayload = fullPayload.substring(0, MAX_CONTEXT_BYTES);
-    const lastBracket = fullPayload.lastIndexOf('}');
-    if (lastBracket > 0) fullPayload = fullPayload.substring(0, lastBracket + 1);
-    fullPayload += `\n[CONTEXT_CAPPED: ${MAX_CONTEXT_BYTES}B limit enforced]`;
-  }
-  if (tenantId && !fullPayload.includes(tenantId)) {
-    console.warn(`[DLL_SAFETY] tenant_id '${tenantId}' lost after truncation. Prepending.`);
-    fullPayload = `[tenant_id: ${tenantId}]\n` + fullPayload;
+    console.warn(`[CONTEXT_CAP] Scaling to 16KB budget. Current: ${fullPayload.length}B`);
+    // Truncation now delegated to the ContextPacker at the inference gate.
   }
 
   return {
@@ -425,11 +438,6 @@ async function firestoreLegacyRetrieval(contextKey) {
   if (!doc.exists) return { contextPayload: null };
   const data = doc.data();
   let content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content || data);
-
-  const MAX_CONTEXT_BYTES = 2048;
-  if (content.length > MAX_CONTEXT_BYTES) {
-    content = content.substring(0, MAX_CONTEXT_BYTES) + '\n[...CONTEXT TRUNCATED FOR PERFORMANCE...]';
-  }
 
   return { contextPayload: content };
 }
@@ -578,9 +586,11 @@ async function handleSentinelInference(req, res) {
   const trace = {};
   if (handleCORS(req, res)) return;
 
-  // Block until Boot Guard verification is complete — no requests
-  // served with an unlocked registry or unverified adapters.
-  await BOOT_GUARD_READY;
+  // ═══ PHASE 0: Boot Block ═══
+  // Block until security primitives and adapter registry are ready.
+  // This achieves "Atomic Boot Guard" behavior without using top-level await.
+  await ensureBoot();
+  const { addSSEClient } = require('./escalation-engine');
 
   try {
     const genai = getGenAI();      // API Key client — generation + classification
@@ -700,15 +710,13 @@ async function handleSentinelInference(req, res) {
       
       // D: External Adapters (Strategy + Adapter Pattern API)
       const tExternal = Date.now();
+      let externalData = null;
       if (strategies.includes('EXTERNAL_API') || strategies.includes('EXTERNAL_PLUGINS')) {
          const activeAdapters = getExternalPlugins(INSTANCE_CONFIG);
          if (activeAdapters && activeAdapters.length > 0) {
            try {
-             const externalData = await ExternalIntelligenceAdapter.fetch(query, industryDomain, activeAdapters);
+             externalData = await ExternalIntelligenceAdapter.fetch(query, industryDomain, activeAdapters);
              if (externalData) {
-               // Knowledge-aware merge: internal vector rows are protected
-               const { mergeContextSafely } = require('./adapters/context-packer');
-               contextPayload = mergeContextSafely(contextPayload, externalData);
                dataAuthority = (dataAuthority ? dataAuthority + ' | ' : '') + 'EXTERNAL_INTELLIGENCE_ADAPTER';
              }
            } catch (e) {
@@ -717,6 +725,13 @@ async function handleSentinelInference(req, res) {
          }
       }
       trace.externalAdapters = Date.now() - tExternal;
+
+      // FINAL SOVEREIGN COMPRESSION
+      // Ensures internal vector rows (P0) are never truncated by external data (P1/P2)
+      const finalPayload = mergeContextSafely(contextPayload, externalData, MAX_CONTEXT_BYTES);
+      
+      // Integrity Guard: Prepend tenantId for DLL Safety
+      contextPayload = `[tenant_id: ${tenantId}]\n` + finalPayload;
       
       trace.ragTotal = Date.now() - tRag0;
 
@@ -1074,6 +1089,7 @@ async function handleVerificationStatus(req, res) {
   if (handleCORS(req, res)) return;
 
   try {
+    await ensureBoot();
     // Auth check (lightweight — PEP Gate)
     await verifyPEP(req);
 
@@ -1104,6 +1120,7 @@ async function handleVerificationStatus(req, res) {
  */
 async function handleSentinelTTS(req, res) {
   if (handleCORS(req, res)) return;
+  await ensureBoot();
   const { text } = req.body;
   if (!text) return res.status(400).send('Text is required');
   try {
@@ -1139,6 +1156,7 @@ async function handleSentinelTTS(req, res) {
  */
 async function handleSentinelEscalation(req, res) {
   if (handleCORS(req, res)) return;
+  await ensureBoot();
 
   try {
     // ── V5.4.1: Server-Sent Events (SSE) Stream ──
