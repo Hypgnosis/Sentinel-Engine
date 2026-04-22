@@ -1,9 +1,9 @@
-# Sentinel Engine v5.1 — Integrator Guide
+# Sentinel Engine v5.5.0-Sovereign — Integrator Guide
 
-> **Version**: 5.1.0 (Sovereign Absolute — Production)  
+> **Version**: 5.5.0 (Sovereign Absolute — Production)  
 > **Project**: `ha-sentinel-core-v21`  
 > **Author**: High ArchyTech Solutions  
-> **Last Updated**: 2026-04-15  
+> **Last Updated**: 2026-04-22  
 
 ---
 
@@ -25,17 +25,17 @@
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                     SENTINEL ENGINE v5.1                          │
+│                     SENTINEL ENGINE v5.5                          │
 │           Sovereign Absolute Architecture (GCP-Native)            │
 ├──────────────────┬────────────────────┬───────────────────────────┤
 │   INFERENCE      │      ETL           │     INFRASTRUCTURE       │
 │                  │                    │                           │
 │ Cloud Function   │ Cloud Run Job      │ Terraform (IaC)          │
-│ Gemini 1.5 Flash │ Freightos/Xeneta   │ Secret Manager           │
-│ Shadow Classifier│ Circuit Breaker    │ IAM Service Accounts     │
+│ Gemini 2.5 Flash │ Freightos/Xeneta   │ Secret Manager           │
+│ Arbiter Kernel   │ Circuit Breaker    │ IAM Service Accounts     │
 │ raceToData RAG   │ SHA-256 Dedup      │ Cloud Monitoring + SLOs  │
 │ Tenant-scoped    │ Tenant-stamped     │ Row-Level Security       │
-│ Postgres + BQ    │                    │ HKDF Key Derivation      │
+│ Postgres + BQ    │                    │ Asymmetric Boot PKI      │
 └──────────────────┴────────────────────┴───────────────────────────┘
          │                    │                       │
          ▼                    ▼                       ▼
@@ -86,10 +86,10 @@ await admin.auth().setCustomUserClaims(uid, { tenant_id: 'acme-logistics' });
 openapi: "3.0.3"
 info:
   title: Sentinel Engine — Sovereign Intelligence API
-  version: "4.1.0"
+  version: "5.5.0"
   description: |
     Enterprise logistics intelligence API powered by BigQuery VECTOR_SEARCH RAG
-    and Gemini 2.0 Flash structured inference. Multi-tenant, zero-trust.
+    and Gemini 2.5 Flash structured inference. Multi-tenant, zero-trust.
   contact:
     name: High ArchyTech Solutions
     email: engineering@high-archy.tech
@@ -200,7 +200,7 @@ components:
           enum: [SUCCESS]
         model:
           type: string
-          example: "gemini-2.0-flash"
+          example: "gemini-2.5-flash"
         timestamp:
           type: string
           format: date-time
@@ -209,7 +209,7 @@ components:
           example: "SEN-1712234567890-A1B2C3"
         infrastructure:
           type: string
-          example: "Sentinel v4.1 — GCP_BIGQUERY_VECTOR_RAG"
+          example: "Sentinel v5.5 — GCP_BIGQUERY_VECTOR_RAG"
         data:
           $ref: "#/components/schemas/IntelligencePayload"
 
@@ -479,18 +479,19 @@ Only explicitly allowlisted origins can call the API:
 
 | Feature | Description |
 |---------|-------------|
-| **Shadow Classifier** | LLM-based sensitivity gate (gemini-2.0-flash-lite) classifies queries before inference. SENSITIVE queries trigger synchronous verification. |
-| **raceToData** | Result-aware RAG racing. Empty results from any tier are ignored; only the first tier with data wins. Prevents hallucination from empty context. |
-| **HKDF PII Tokenization** | Per-tenant HMAC keys derived via HKDF from the global signing key. Cross-tenant PII correlation is cryptographically impossible. |
-| **Fail-Fast Integrity** | Zod schema violations produce typed 422 errors with `failedModules` detail. No degraded data reaches the client. |
-| **Configuration Monism** | `DATABASE_URL` is the sole database config. No fallback chains. Missing at boot → hard crash. |
+| **Arbiter Kernel** | Unified safety gate with Zod-enforced schema validation and NLI verification. |
+| **raceToData** | Result-aware RAG racing. Empty results from any tier are ignored; only the first tier with data wins. |
+| **Asymmetric Boot PKI** | Non-repudiable evidence locker integrity using ECDSA P-256 cryptography. |
+| **Fail-Fast Integrity** | Zod schema violations produce typed 422 errors with `failedModules` detail. |
+| **Configuration Monism** | `DATABASE_URL` is the sole database config. Missing at boot → hard crash. |
 
 ### FIPS 140-2 / HSM Compliance
 
-> **⚠️ V5.2 Roadmap Item**: FIPS 140-2 Level 2 compliance and Hardware Security Module (HSM)
-> integration via Cloud KMS are planned for V5.2. The current V5.1 release uses a software-based
-> KMS provider (`SoftwareKmsProvider`) with HKDF key derivation. Regulated sectors requiring
-> FIPS-validated cryptographic modules should plan deployment for the V5.2 release cycle.
+> **FIPS-GRADE SECURITY**: The Sentinel Engine v5.5 utilizes an **AsymmetricKmsProvider** 
+> (ECDSA P-256) for non-repudiable transaction signing. This architecture is designed for 
+> FIPS 140-2 Level 3 compliance when paired with a Cloud HSM. Software-based fallbacks 
+> are explicitly disabled in production mode. Contact [High ArchyTech Solutions](https://high-archy.tech) 
+> for HSM integration guides.
 
 ---
 

@@ -1,9 +1,9 @@
 {
   "info": {
     "name": "Sentinel Engine — Sovereign Intelligence API",
-    "description": "Enterprise logistics intelligence API powered by GCP-native infrastructure.\n\nAuthentication: Firebase ID Token (Bearer)\nEndpoint: https://gateway.sentinel-engine.tech/v4/inference\n\n## Quick Start\n1. Set the `sentinel_bearer_token` variable in the Sandbox environment\n2. Run the 'Health Check Ping' request to verify connectivity\n3. Run any query request to test inference\n\n## Authentication\nTokens are obtained via Firebase Auth SDK. For sandbox testing, use the token provided by your Sentinel Engine administrator.",
+    "description": "Enterprise logistics intelligence API powered by GCP-native infrastructure.\n\nAuthentication: Firebase ID Token (Bearer)\nEndpoint: https://gateway.sentinel-engine.tech/v5/inference\n\n## Quick Start\n1. Set the `sentinel_bearer_token` variable in the Sandbox environment\n2. Run the 'Health Check Ping' request to verify connectivity\n3. Run any query request to test inference\n\n## Authentication\nTokens are obtained via Firebase Auth SDK. For sandbox testing, use the token provided by your Sentinel Engine administrator.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "_postman_id": "sentinel-engine-v4-collection"
+    "_postman_id": "sentinel-engine-v5.5-collection"
   },
   "auth": {
     "type": "bearer",
@@ -18,7 +18,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "https://gateway.sentinel-engine.tech/v4"
+      "value": "https://gateway.sentinel-engine.tech/v5"
     },
     {
       "key": "sentinel_bearer_token",

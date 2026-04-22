@@ -1,6 +1,6 @@
 const { Pool } = require('pg');
 const pool = new Pool({
-  connectionString: 'postgresql://sentinel:53ntin3l3ng1n3v5.2@127.0.0.1:5432/sentinel_reservoir'
+  connectionString: process.env.DATABASE_URL
 });
 async function alter() {
   await pool.query(`

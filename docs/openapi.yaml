@@ -2,7 +2,7 @@ swagger: '2.0'
 info:
   title: Sentinel Engine API (Rose Rocket Dedicated Environment)
   description: Autonomous Logistics Intelligence Engine. Headless API for TMS integration.
-  version: 4.0.0
+  version: 5.5.0
 host: us-central1-ha-sentinel-core-v21.cloudfunctions.net
 schemes:
   - https
