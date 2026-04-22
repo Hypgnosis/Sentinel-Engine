@@ -38,10 +38,15 @@ let _sql = null;
 function getSql() {
   if (_sql) return _sql;
 
-  const dbUrl = process.env.DATABASE_URL;
+  let dbUrl = process.env.DATABASE_URL ? process.env.DATABASE_URL.trim() : null;
   
   if (!dbUrl) {
     throw new Error('FATAL_CONFIG_FAILURE: DATABASE_URL is missing from environment.');
+  }
+
+  // Fix Node 20+ URL parsing for postgres unix sockets missing a hostname
+  if (dbUrl.includes('@/')) {
+    dbUrl = dbUrl.replace('@/', '@localhost/');
   }
 
   // Detect Cloud SQL Unix socket connection (path contains /cloudsql/)
@@ -104,15 +109,10 @@ async function postgresVectorSearch(queryVector, tenantId) {
     }
   }
 
-  // Gemini Flash can handle up to 1M tokens. Expanding limit to easily accommodate 4 tables.
-  const MAX_CONTEXT_BYTES = 8192;
-  let fullPayload = sections.join('\n');
+  const { MAX_CONTEXT_BYTES } = require('./adapters/context-packer');
+  const fullPayload = sections.join('\n');
   if (fullPayload.length > MAX_CONTEXT_BYTES) {
-    console.warn(`[PG_CONTEXT_CAP] Payload ${fullPayload.length}B exceeds ${MAX_CONTEXT_BYTES}B limit.`);
-    fullPayload = fullPayload.substring(0, MAX_CONTEXT_BYTES);
-    const lastBracket = fullPayload.lastIndexOf('}');
-    if (lastBracket > 0) fullPayload = fullPayload.substring(0, lastBracket + 1);
-    fullPayload += `\n[CONTEXT_CAPPED: ${MAX_CONTEXT_BYTES}B limit enforced]`;
+    console.warn(`[PG_CONTEXT_CAP] Scaling to 16KB budget. Current: ${fullPayload.length}B`);
   }
 
   return {

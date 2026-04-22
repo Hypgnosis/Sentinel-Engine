@@ -1,5 +1,5 @@
 /**
- * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.4 "CONDITIONAL EXECUTION")
+ * SENTINEL ENGINE — CORE INFRASTRUCTURE (V5.5.0 "SOVEREIGN ABSOLUTE")
  * ═══════════════════════════════════════════════════════════
  * Google Cloud Function (Node.js 20) — Gen2
  *
@@ -869,7 +869,7 @@ OUTPUT FORMAT: Strict JSON matching the specified Response Schema.`;
       data.dataAuthority = dataAuthority;
 
       // Extract atomic classification dynamically from single-pass
-      queryClassification = data.executiveAction?.classification || 'SENSITIVE';
+      queryClassification = data.executiveAction?.classification || (data.confidence >= 0.8 ? 'GENERAL' : 'SENSITIVE');
       impactLevel = data.executiveAction?.classification === 'HIGH_IMPACT' ? 'HIGH_IMPACT' : 'STANDARD';
       
       trace.queryClass = queryClassification;
@@ -1016,7 +1016,7 @@ OUTPUT FORMAT: Strict JSON matching the specified Response Schema.`;
       model: modelId || 'gemini-2.5-flash',
       timestamp: new Date().toISOString(),
       data,
-      infrastructure: `Sentinel v5.4 [${dataAuthority}]`,
+      infrastructure: `Sentinel v5.5.0 [${dataAuthority}]`,
       latencyTrace: trace,
       requestId,
       queryClassification,
