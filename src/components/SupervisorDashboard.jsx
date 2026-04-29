@@ -1,5 +1,5 @@
 /**
- * SENTINEL ENGINE V5.4 — Integrity Supervisor Dashboard (HITL)
+ * SENTINEL ENGINE V5.5 — Integrity Supervisor Dashboard (HITL)
  * ═══════════════════════════════════════════════════════════════════
  * The "Cockpit" for Tier 1 leadership. Provides:
  *   - Real-time escalation queue with Evidence Locker Fragments

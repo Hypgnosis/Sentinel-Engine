@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS freight_indices (
     id SERIAL PRIMARY KEY,
     entity_hash TEXT UNIQUE NOT NULL,
-    tenant_id TEXT NOT NULL,
+
     source TEXT NOT NULL,
     route_origin TEXT,
     route_destination TEXT,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS freight_indices (
 CREATE TABLE IF NOT EXISTS port_congestion (
     id SERIAL PRIMARY KEY,
     entity_hash TEXT UNIQUE NOT NULL,
-    tenant_id TEXT NOT NULL,
+
     source TEXT NOT NULL,
     port_name TEXT NOT NULL,
     vessels_at_anchor INTEGER,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS port_congestion (
 CREATE TABLE IF NOT EXISTS maritime_chokepoints (
     id SERIAL PRIMARY KEY,
     entity_hash TEXT UNIQUE NOT NULL,
-    tenant_id TEXT NOT NULL,
+
     source TEXT NOT NULL,
     chokepoint_name TEXT NOT NULL,
     status TEXT,
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS maritime_chokepoints (
 CREATE TABLE IF NOT EXISTS risk_matrix (
     id SERIAL PRIMARY KEY,
     entity_hash TEXT UNIQUE NOT NULL,
-    tenant_id TEXT NOT NULL,
+
     source TEXT NOT NULL,
     risk_factor TEXT NOT NULL,
     severity TEXT,
@@ -92,10 +92,6 @@ CREATE INDEX IF NOT EXISTS idx_port_vector ON port_congestion USING hnsw (embedd
 CREATE INDEX IF NOT EXISTS idx_choke_vector ON maritime_chokepoints USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS idx_risk_vector ON risk_matrix USING hnsw (embedding vector_cosine_ops);
 
-CREATE INDEX IF NOT EXISTS idx_freight_tenant ON freight_indices(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_port_tenant ON port_congestion(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_choke_tenant ON maritime_chokepoints(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_risk_tenant ON risk_matrix(tenant_id);
 
 -- ─────────────────────────────────────────────────────
 --  V5.4 HITL & ESCALATION MODULE
@@ -106,7 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_risk_tenant ON risk_matrix(tenant_id);
 -- Fulfills NIST CSF 2.0 GOVERN function: "Conditional Execution."
 CREATE TABLE IF NOT EXISTS standing_authority_matrix (
     unit_id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL,
+
     config JSONB NOT NULL,
     grantor_id TEXT REFERENCES standing_authority_matrix(unit_id),
     signature TEXT NOT NULL,
@@ -143,7 +139,7 @@ CREATE TABLE IF NOT EXISTS evidence_locker (
     payload JSONB NOT NULL,
     signature TEXT NOT NULL,
     previous_signature TEXT,       -- chain link to prior entry
-    tenant_id TEXT NOT NULL,
+
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -152,7 +148,7 @@ CREATE TABLE IF NOT EXISTS evidence_locker (
 CREATE TABLE IF NOT EXISTS escalation_requests (
     escalation_id TEXT PRIMARY KEY,
     request_id TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
+
     authority_id TEXT REFERENCES standing_authority_matrix(unit_id),
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN (
         'PENDING', 'OVERRIDE_RELEASED', 'CONFIRMED_BLOCKED', 'TTL_EXPIRED'
@@ -190,11 +186,9 @@ ALTER TABLE verification_results ADD COLUMN IF NOT EXISTS escalation_id TEXT;
 --  V5.4 INDEXES
 -- ─────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_evidence_request ON evidence_locker(request_id);
-CREATE INDEX IF NOT EXISTS idx_evidence_tenant ON evidence_locker(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_type ON evidence_locker(event_type);
 CREATE INDEX IF NOT EXISTS idx_evidence_created ON evidence_locker(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_escalation_status ON escalation_requests(status);
-CREATE INDEX IF NOT EXISTS idx_escalation_tenant ON escalation_requests(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_escalation_ttl ON escalation_requests(ttl_expires_at) WHERE status = 'PENDING';
 CREATE INDEX IF NOT EXISTS idx_authority_active ON standing_authority_matrix(is_active) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_authority_blast ON standing_authority_matrix(blast_radius, escalation_tier);

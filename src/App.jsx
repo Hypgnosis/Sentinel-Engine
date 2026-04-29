@@ -12,7 +12,7 @@ import {
 import { SentinelClient } from './SentinelClient';
 
 // ═══════════════════════════════════════════════════════════════════
-//  SENTINEL GOVERNANCE DASHBOARD V5.2 — "Sovereign Absolute"
+//  SENTINEL GOVERNANCE DASHBOARD V5.5 — "Sovereign"
 //  Built by High ArchyTech Solutions
 //  Architecture: Hardened Security Appliance
 //  Pattern: Glassmorphism / High Density / Motion-Reduced
@@ -24,7 +24,7 @@ import { SentinelClient } from './SentinelClient';
 const translations = {
   en: {
     brand: 'SENTINEL ENGINE',
-    version: 'V5.3 SOVEREIGN AGNOSTIC',
+    version: 'V5.5.0 SOVEREIGN',
 
     metrics: {
       bhr: 'Blocked Hallucination Rate',
@@ -115,9 +115,14 @@ const translations = {
       attacking: 'Attack Active...',
     },
     auditLog: {
-      title: 'Sovereign Audit Log',
+      title: 'Real-Time Governance Stream',
       subtitle: 'Real-Time Governance Telemetry',
-      clear: 'Clear',
+      clear: 'Clear Stream',
+      evidenceLocker: 'Evidence Locker ID',
+      verified: 'Verified',
+      arbitration: 'Arbitration Request',
+      permit: 'Permit Issued',
+      deny: 'Request Denied',
     },
     lang: 'EN',
     switchLang: 'ES',
@@ -125,7 +130,7 @@ const translations = {
       title: 'Ask Sentinel',
       subtitle: 'Governance Intelligence Query — verified against live data',
       placeholder: 'Ask about regulatory exposure, risk posture, compliance gaps, operational resilience...',
-      welcome: 'Sentinel Governance Terminal online. V5.3 Sovereign Agnostic core active.',
+      welcome: 'Sentinel Governance Terminal online. V5.5 Sovereign Core active. Gavel Logic initialized.',
       thinking: 'Verifying against live data sources...',
       error: 'PIPELINE STALL — Unable to reach inference layer.',
       partial: 'CAUTIONARY INSIGHT — DEGRADED RETRIEVAL',
@@ -145,7 +150,7 @@ const translations = {
   },
   es: {
     brand: 'SENTINEL ENGINE',
-    version: 'V5.3 SOBERANÍA AGNÓSTICA',
+    version: 'V5.5.0 SOBERANÍA',
 
     metrics: {
       bhr: 'Tasa de Alucinación Bloqueada',
@@ -236,9 +241,14 @@ const translations = {
       attacking: 'Ataque Activo...',
     },
     auditLog: {
-      title: 'Registro de Auditoría Soberana',
+      title: 'Flujo de Gobernanza en Tiempo Real',
       subtitle: 'Telemetría de Gobernanza en Vivo',
-      clear: 'Limpiar',
+      clear: 'Limpiar Flujo',
+      evidenceLocker: 'ID Casillero de Evidencia',
+      verified: 'Verificado',
+      arbitration: 'Solicitud de Arbitraje',
+      permit: 'Permiso Emitido',
+      deny: 'Solicitud Denegada',
     },
     lang: 'ES',
     switchLang: 'EN',
@@ -246,7 +256,7 @@ const translations = {
       title: 'Pregúntale a Sentinel',
       subtitle: 'Consulta de Inteligencia de Gobernanza — verificada con datos en vivo',
       placeholder: 'Pregunta sobre exposición regulatoria, postura de riesgo, brechas de cumplimiento...',
-      welcome: 'Terminal de Gobernanza Sentinel en línea. Núcleo V5.3 Soberanía Agnóstica activo.',
+      welcome: 'Terminal de Gobernanza Sentinel en línea. Núcleo V5.5 Soberanía activo. Lógica Gavel inicializada.',
       thinking: 'Verificando contra fuentes de datos en vivo...',
       error: 'FALLO EN PIPELINE — No se pudo alcanzar la capa de inferencia.',
       partial: 'INSIGHT DE PRECAUCIÓN — RECUPERACIÓN DEGRADADA',
@@ -555,6 +565,33 @@ const ProsecutorGauge = ({ t, bhr, verified, blocked, contradictions, attackActi
       <div className="flex items-center justify-between px-2 py-1.5 mb-3 rounded bg-obsidian-light border border-obsidian-border">
         <span className="text-[9px] font-mono text-text-muted">{t.pillars.prosecutor.totalInferences}</span>
         <span className="text-[10px] font-mono font-bold text-text-primary">{(verified + blocked).toLocaleString()}</span>
+      </div>
+
+      {/* V5.5 Status Bar */}
+      <div className="flex items-center justify-between mt-6 p-2.5 rounded-lg bg-obsidian/40 border border-obsidian-border">
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col">
+            <span className="text-[7px] font-mono text-text-muted uppercase tracking-wider">Arbitration</span>
+            <span className="text-[10px] font-mono font-bold text-amber-gold">14 Active</span>
+          </div>
+          <div className="w-px h-6 bg-obsidian-border" />
+          <div className="flex flex-col">
+            <span className="text-[7px] font-mono text-text-muted uppercase tracking-wider">Permits</span>
+            <span className="text-[10px] font-mono font-bold text-success">842</span>
+          </div>
+          <div className="w-px h-6 bg-obsidian-border" />
+          <div className="flex flex-col">
+            <span className="text-[7px] font-mono text-text-muted uppercase tracking-wider">Denials</span>
+            <span className="text-[10px] font-mono font-bold text-danger">31</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-2 py-1 rounded bg-cyber-purple/10 border border-cyber-purple/20">
+          <ShieldCheck className="w-3 h-3 text-cyber-purple" />
+          <div className="flex flex-col">
+            <span className="text-[6px] font-mono text-text-muted uppercase leading-none">Sig Layer</span>
+            <span className="text-[8px] font-mono font-bold text-cyber-purple leading-tight">ECDSA P-256</span>
+          </div>
+        </div>
       </div>
 
       {/* Contradiction Log */}
@@ -911,7 +948,7 @@ const AuditLogPanel = ({ t, entries, onClear }) => {
       <div className="flex items-center justify-between p-3 border-b border-obsidian-border">
         <div>
           <h3 className="text-[10px] font-mono font-bold text-text-primary tracking-[0.15em]">{t.auditLog.title}</h3>
-          <p className="text-[8px] font-mono text-text-muted tracking-wider">{t.auditLog.subtitle}</p>
+          <p className="text-[8px] font-mono text-text-muted tracking-wider">Synchronous Evidence Locker (P-256)</p>
         </div>
         <button onClick={onClear}
           className="text-[8px] font-mono text-text-muted hover:text-text-secondary px-2 py-1 rounded border border-obsidian-border hover:border-obsidian-border-light cursor-pointer transition-colors">
@@ -941,6 +978,13 @@ const AuditLogPanel = ({ t, entries, onClear }) => {
             <p className={`text-[9px] font-mono leading-snug ${sevColor[e.sev] || 'text-text-secondary'}`}>
               {e.msg}
             </p>
+            {e.verified && (
+              <div className="mt-1.5 flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-success/[0.08] border border-success/20 w-fit">
+                <ShieldCheck className="w-2.5 h-2.5 text-success" />
+                <span className="text-[7px] font-mono font-bold text-success tracking-wider uppercase">P-256 Verified</span>
+                <span className="text-[7px] font-mono text-text-muted ml-2 opacity-60">ID: {e.lockerId}</span>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1135,7 +1179,7 @@ const QueryTerminal = ({ t, attackActive }) => {
                 <div className="w-2.5 h-2.5 rounded-full bg-warning/60" />
                 <div className="w-2.5 h-2.5 rounded-full bg-success/60" />
               </div>
-              <span className="text-[10px] font-mono text-text-muted tracking-wider">SENTINEL://governance/v5.2</span>
+              <span className="text-[10px] font-mono text-text-muted tracking-wider">SENTINEL://governance/v5.5-sovereign</span>
 
               {/* Soundwave Visualizer (active when speaking) */}
               {isSpeaking && (
@@ -1393,11 +1437,12 @@ export default function App() {
 
   // ─── Audit Log ───
   const [auditLog, setAuditLog] = useState(() => [
-    makeLogEntry('SYSTEM', 'Governance Dashboard V5.2 initialized', 'info'),
+    makeLogEntry('SYSTEM', 'Governance Dashboard V5.5 Sovereign initialized', 'info'),
     makeLogEntry('INTEGRITY', 'BHR baseline established — 97.3%', 'info'),
     makeLogEntry('PRIVACY', 'HKDF-SHA256 pepper loaded from Secret Manager', 'info'),
     makeLogEntry('BACKBONE', 'GCP us-west1 Private Backbone — STABLE', 'success'),
     makeLogEntry('SENSOR', 'All 12 sensors reporting NOMINAL', 'info'),
+    { ...makeLogEntry('INTEGRITY', 'Evidence Locker P-256 handshake complete', 'success'), verified: true, lockerId: 'EL-0041-A' },
   ]);
 
   // ─── Derived ───
@@ -1470,6 +1515,9 @@ export default function App() {
         makeLogEntry('PRIVACY', `PII token generated — HKDF-SHA256 [${['SSN', 'CC', 'SubjectID'][Math.floor(Math.random() * 3)]}]`, 'info'),
         makeLogEntry('SENSOR', `${12 - (sensorBlackout ? 3 : 0)} of 12 sensors NOMINAL`, sensorBlackout ? 'warning' : 'info'),
         makeLogEntry('BACKBONE', `us-west1 latency: ${Math.floor(Math.random() * 15 + 5)}ms (PASS)`, 'success'),
+        { ...makeLogEntry('INTEGRITY', `Factual proof signed: ${uid().slice(0, 8)}`, 'success'), verified: true, lockerId: `EL-${Math.floor(Math.random() * 9000 + 1000)}` },
+        makeLogEntry('ARBITRATION', `Request ${uid().slice(0, 4).toUpperCase()}: ESCALATED to Governance Board`, 'warning'),
+        makeLogEntry('ARBITRATION', `Request ${uid().slice(0, 4).toUpperCase()}: PERMIT ISSUED via Gavel Logic`, 'success'),
       ];
       const entry = entries[Math.floor(Math.random() * entries.length)];
       setAuditLog(prev => [entry, ...prev].slice(0, 80));

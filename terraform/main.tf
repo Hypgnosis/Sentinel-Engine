@@ -1,11 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════
-#  SENTINEL ENGINE v5.2 — Terraform Infrastructure (Sub-Zero Latency)
+#  SENTINEL ENGINE v5.5 — Terraform Infrastructure (Sovereign)
 #  Project: ha-sentinel-core-v21
 #
 #  Provisions: APIs, Service Accounts, IAM, Secret Manager,
 #              Artifact Registry, and Cloud SQL (Pristine Reservoir).
 #
-#  V5.2: Cloud SQL replaces Supabase to eliminate cross-cloud latency.
+#  V5.5: Sovereign Infrastructure (GCP Native).
 #         Private IP only. pgvector enabled. HA for production.
 # ═══════════════════════════════════════════════════════════════════
 
@@ -26,7 +26,7 @@ terraform {
   # Remote state in GCS (create bucket manually first)
   # backend "gcs" {
   #   bucket = "ha-sentinel-terraform-state"
-  #   prefix = "sentinel-engine/v52"
+  #   prefix = "sentinel-engine/v55"
   # }
 }
 
@@ -194,7 +194,7 @@ resource "google_service_networking_connection" "private_vpc_connection" {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-#  CLOUD SQL — PRISTINE RESERVOIR (V5.2 Sub-Zero Latency)
+#  CLOUD SQL — PRISTINE RESERVOIR (V5.5 Sovereign Infrastructure)
 # ═══════════════════════════════════════════════════════════════════
 
 resource "google_sql_database_instance" "pristine_reservoir" {

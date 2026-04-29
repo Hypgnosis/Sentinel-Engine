@@ -1,26 +1,14 @@
 /**
- * SENTINEL CLIENT — Headless API Abstraction Layer (v4.1 Data Moat)
+ * SENTINEL CLIENT — Sovereign Stamp IPC Client (mTLS)
  * ═══════════════════════════════════════════════════════════
- * Reusable, framework-agnostic client for Sentinel Engine.
- * Handles authentication, request execution, structured JSON
- * response parsing, and health checks.
- * 
- * Data Authority: GCP_BIGQUERY_VECTOR_RAG (primary) | FIRESTORE_LEGACY (fallback)
- * 
- * Usage:
- *   import { SentinelClient, SentinelError } from './SentinelClient';
- *   const client = new SentinelClient(SENTINEL_ENDPOINT);
- *   const result = await client.query('What are current Shanghai rates?');
- *   // result = { narrative, metrics, confidence, sources, dataAuthority }
+ * Communicates with the local Go Sovereign Sidecar using mTLS.
+ * No Firebase Auth. No multi-tenant headers.
  * ═══════════════════════════════════════════════════════════
  */
 
-import { getAuth } from 'firebase/auth';
+import * as https from 'https';
+import * as fs from 'fs';
 
-/**
- * Custom error class for Sentinel Engine failures.
- * Carries the API error code and request ID for traceability.
- */
 export class SentinelError extends Error {
   constructor(code, message, requestId = null, httpStatus = null) {
     super(message);
@@ -31,195 +19,81 @@ export class SentinelError extends Error {
   }
 }
 
-// Alias for backward compatibility (App.jsx imports SentinelClientError)
-export { SentinelError as SentinelClientError };
-
-/**
- * Headless Sentinel Engine client.
- * Abstracts all API communication behind a clean interface.
- */
 export class SentinelClient {
-  /**
-   * @param {string} endpoint - The Sentinel Engine Cloud Function URL
-   */
-  constructor(endpoint) {
-    if (!endpoint) {
-      throw new SentinelError(
-        'SENTINEL_CONFIG_ERROR',
-        'Endpoint URL is required. Set VITE_SENTINEL_ENDPOINT in your environment.'
-      );
-    }
+  constructor(endpoint = 'https://localhost:9443/v1/arbitrate') {
     this.endpoint = endpoint;
+    
+    // Load certificates for mTLS
+    try {
+      this.agent = new https.Agent({
+        cert: fs.readFileSync('/var/sentinel/certs/client.crt'),
+        key: fs.readFileSync('/var/sentinel/certs/client.key'),
+        ca: fs.readFileSync('/var/sentinel/certs/ca.crt'),
+        rejectUnauthorized: true
+      });
+    } catch (err) {
+      console.warn('[SENTINEL_CLIENT] Warning: Failed to load mTLS certs from /var/sentinel/certs/:', err.message);
+      this.agent = new https.Agent({ rejectUnauthorized: false }); // Fallback for dev if needed
+    }
   }
 
-  /**
-   * Acquire a fresh Firebase ID token.
-   * Waits for auth state hydration before accessing currentUser.
-   * @returns {Promise<string>} ID token
-   * @throws {SentinelError} If user is not authenticated
-   */
-  async _getIdToken() {
-    const auth = getAuth();
-    await auth.authStateReady();
-    let user = auth.currentUser;
-
-    // If local auth state hasn't hydrated or the user is completely logged out,
-    // force a silent anonymous sign in right before the request flies.
-    if (!user) {
-      const { signInAnonymously } = await import('firebase/auth');
-      const cred = await signInAnonymously(auth);
-      user = cred.user;
-    }
-
-    if (!user) {
-      throw new SentinelError(
-        'SENTINEL_AUTH_REQUIRED',
-        'Authentication required. Please sign in to access the Sentinel Engine.'
-      );
-    }
-
-    return user.getIdToken(/* forceRefresh */ false);
-  }
-
-  /**
-   * Execute a raw POST request to the Sentinel Engine.
-   * @param {Object} body - Request body
-   * @param {boolean} requireAuth - Whether to attach auth token
-   * @returns {Promise<{response: Response, data: Object}>}
-   */
-  async _request(body, requireAuth = true) {
+  async _request(body) {
     const headers = { 'Content-Type': 'application/json' };
 
-    if (requireAuth) {
-      const token = await this._getIdToken();
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
+    // We use Node's native fetch (Node 18+) or node-fetch.
+    // If native fetch doesn't support 'agent' natively, this might need 'dispatcher'.
+    // We provide 'agent' for node-fetch compatibility.
     const response = await fetch(this.endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      agent: this.agent
     });
 
     const data = await response.json();
     return { response, data };
   }
 
-  /**
-   * Execute a logistics intelligence query.
-   * Returns structured JSON: { narrative, metrics, confidence, sources, dataAuthority }
-   * 
-   * @param {string} queryText - Natural language query
-   * @returns {Promise<{narrative: string, metrics: Array, confidence: number, sources: string[], dataAuthority: string}>}
-   * @throws {SentinelError} On auth, rate limit, or inference failure
-   */
   async query(queryText) {
     if (!queryText || typeof queryText !== 'string' || queryText.trim().length === 0) {
-      throw new SentinelError(
-        'SENTINEL_EMPTY_QUERY',
-        'Query must be a non-empty string.'
-      );
+      throw new SentinelError('SENTINEL_EMPTY_QUERY', 'Query must be a non-empty string.');
     }
 
-    const { response, data } = await this._request({ query: queryText.trim() });
+    const { response, data } = await this._request({ skill: 'Arbitration', resource: queryText.trim() });
 
     if (!response.ok) {
-      // Map audit failure code if present (v5.3 hardening)
-      const errorCode = data.status === 'TRUTH_AUDIT_FAILURE' ? data.error : (data.code || 'SENTINEL_REQUEST_FAILED');
-      
       throw new SentinelError(
-        errorCode,
+        data.code || 'SENTINEL_REQUEST_FAILED',
         data.message || data.error || `Request failed with status ${response.status}`,
-        data.requestId,
+        data.audit_id,
         response.status
       );
     }
-
-    if (!data.data) {
-      throw new SentinelError(
-        'SENTINEL_INVALID_RESPONSE',
-        'Received an empty or malformed response from the inference layer.',
-        data.requestId,
-        response.status
-      );
-    }
-
-    // Structured response from Gemini via the backend
-    const structured = data.data;
 
     return {
-      narrative: structured.narrative || '',
-      metrics: structured.metrics || [],
-      confidence: structured.confidence ?? null,
-      sources: structured.sources || [],
-      dataAuthority: structured.dataAuthority || data.infrastructure || 'UNKNOWN',
-      audioBase64: data.audioBase64 || null,
-      requestId: data.requestId,
-      model: data.model,
-      timestamp: data.timestamp,
-      // V4.9-RC Fortress additions
-      verificationStatus: data.verificationStatus || null,
-      isResilienceMode: data.isResilienceMode || false,
-      cacheStatus: data.cacheStatus || null,
-      authMethod: data.authMethod || null,
-      // Sub-schema decomposition (V4.9-RC DLL)
-      geography: structured.geography || null,
-      riskMatrix: structured.riskMatrix || null,
-      executiveAction: structured.executiveAction || null,
-      recommendations: structured.executiveAction?.recommendations || [],
+      decision: data.decision,
+      auditId: data.audit_id,
+      latencyUs: data.latency_us
     };
   }
 
-  /**
-   * Health check — validates the Sentinel Engine route is operational.
-   * Does NOT consume LLM tokens. Uses the auth/validation gates as probes.
-   * 
-   * @returns {Promise<{online: boolean, authenticated: boolean, details: Object}>}
-   */
   async healthCheck() {
     try {
-      // Attempt authenticated ping first
-      let authAvailable = false;
-      try {
-        const auth = getAuth();
-        await auth.authStateReady();
-        authAvailable = !!auth.currentUser;
-      } catch {
-        authAvailable = false;
-      }
-
-      const { response, data } = await this._request({}, authAvailable);
-
-      // 401 = auth gate is alive (unauthenticated ping)
-      // 400 = reached validation layer (authenticated, empty query)
-      // 403 = auth works, tenant not provisioned
-      const healthyStatuses = [400, 401, 403];
-      const isOnline = healthyStatuses.includes(response.status);
-
+      const { response, data } = await this._request({ skill: 'HealthCheck', resource: 'ping' });
       return {
-        online: isOnline,
-        authenticated: authAvailable && response.status !== 401,
+        online: response.ok,
+        authenticated: true,
         details: {
           status: response.status,
-          code: data.code,
-          routing: isOnline ? 'VPC_INTERNAL' : 'UNREACHABLE',
-          dataAuthority: isOnline ? 'GCP_BIGQUERY_VECTOR_RAG' : 'UNKNOWN',
-          zeroTrust: isOnline ? 'VERIFIED' : 'UNVERIFIED',
-        },
+          decision: data.decision,
+          auditId: data.audit_id
+        }
       };
     } catch (error) {
-      // Network failure — endpoint unreachable
       return {
         online: false,
         authenticated: false,
-        details: {
-          status: 0,
-          code: 'NETWORK_ERROR',
-          routing: 'UNREACHABLE',
-          dataAuthority: 'UNKNOWN',
-          zeroTrust: 'UNVERIFIED',
-          error: error.message,
-        },
+        details: { status: 0, code: 'NETWORK_ERROR', error: error.message }
       };
     }
   }

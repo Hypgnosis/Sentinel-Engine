@@ -1,5 +1,5 @@
 /**
- * SENTINEL ENGINE v5.2 — Theme Bridge (Multi-Instance UI)
+ * SENTINEL ENGINE v5.5 — Theme Bridge (Multi-Instance UI)
  * ═══════════════════════════════════════════════════════
  * Single-file React component that serves as both ThemeProvider and MainUI.
  *
@@ -46,7 +46,7 @@ const INSTANCES = {
     tenantId: 'SENTINEL_PROD',
     language: 'en',
     ttsVoice: 'en-US-Journey-F',
-    terminalLabel: 'SENTINEL://logistics/v5.2',
+    terminalLabel: 'SENTINEL://logistics/v5.5',
     systemPromptHint: 'Logistics & Supply Chain Intelligence',
     suggestions: [
       'What\'s the current freight rate from Shanghai to Rotterdam?',
@@ -75,7 +75,7 @@ const INSTANCES = {
     tenantId: 'CFE_MX_GRID_ALPHA',
     language: 'es',
     ttsVoice: 'es-US-Neural2-A',
-    terminalLabel: 'SENTINEL://energy-cfe/v5.2',
+    terminalLabel: 'SENTINEL://energy-cfe/v5.5',
     systemPromptHint: 'Energy & Grid Resiliency (CFE)',
     suggestions: [
       'Analiza la carga actual en las subestaciones de la Zona Metropolitana',
@@ -112,8 +112,8 @@ const TELEMETRY_STAGES = [
   { delayMs: 5000,  label: 'BQ_WAREHOUSE_ACCESS',     detail: 'BigQuery dataset connection established', icon: 'database' },
   { delayMs: 8000,  label: 'EMBEDDING_GENERATION',    detail: 'text-embedding-004 · 768-dim vector generated', icon: 'cpu' },
   { delayMs: 12000, label: 'VECTOR_RAG_SEARCH',       detail: 'VECTOR_SEARCH across 3 tables · top-15 results', icon: 'radar' },
-  { delayMs: 18000, label: 'CONTEXT_ASSEMBLY',         detail: 'Semantic context payload assembled (4.2 KB)', icon: 'layers' },
-  { delayMs: 25000, label: 'GEMINI_25_PRO_INJECTION', detail: 'Cognitive router → Gemini 2.5 Pro (thinking budget: 2048)', icon: 'brain' },
+  { delayMs: 18000, label: 'CONTEXT_ASSEMBLY',         detail: 'Semantic context payload assembled (16.4 KB)', icon: 'layers' },
+  { delayMs: 25000, label: 'GEMINI_25_PRO_INJECTION',  detail: 'Cognitive router → Gemini 2.0 Flash (thinking budget: 16384)', icon: 'brain' },
   { delayMs: 35000, label: 'DEEP_REASONING',           detail: 'Chain-of-thought reasoning in progress...', icon: 'sparkles' },
   { delayMs: 45000, label: 'NARRATIVE_SYNTHESIS',      detail: 'Structured JSON response materialization', icon: 'file' },
   { delayMs: 55000, label: 'RESPONSE_FINALIZATION',    detail: 'Confidence scoring · metrics extraction', icon: 'check' },

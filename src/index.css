@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* ─── V5.2 GOVERNANCE: Deep Obsidian Canvas ─── */
+  /* ─── V5.5 SOVEREIGN: Deep Obsidian Canvas ─── */
   --color-obsidian: #0A0A0A;
   --color-obsidian-light: #111111;
   --color-obsidian-mid: #161616;
@@ -37,7 +37,10 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-/* ═══ Base ═══ */
+  /* ═══════════════════════════════════════════════════════════════════
+   SENTINEL ENGINE v5.5.0 — "Sovereign" (Production)
+   Hardened UI Infrastructure / Obsidian-Series Glassmorphism
+   ═══════════════════════════════════════════════════════════════════ */
 * {
   margin: 0;
   padding: 0;

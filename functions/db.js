@@ -1,9 +1,9 @@
 /**
- * SENTINEL ENGINE V5.2 — PostgreSQL Client (Pristine Reservoir)
+ * SENTINEL ENGINE V5.5 — PostgreSQL Client (Pristine Reservoir)
  * ═══════════════════════════════════════════════════════════
  * High-speed RAG grounding for inference.
  *
- * V5.2 PROJECT SUB-ZERO LATENCY:
+ * V5.5 PROJECT SOVEREIGN:
  *   Engine migrated from Supabase (AWS cross-cloud) to
  *   GCP Cloud SQL (in-region, Google private backbone).
  *   Target: <10ms vector search latency.
@@ -68,7 +68,7 @@ function getSql() {
 
 /**
  * Executes a semantic search across multiple tables.
- * V4.5.2: Aligned to 2048B context budget with top-3 per table.
+ * V5.5: Aligned to 16KB context budget with top-3 per table.
  */
 async function postgresVectorSearch(queryVector, tenantId) {
   const sql = getSql();

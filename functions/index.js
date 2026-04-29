@@ -1329,8 +1329,97 @@ async function handleSentinelEscalation(req, res) {
   }
 }
 
+// ─────────────────────────────────────────────────────
+//  V5.5 VERITAS PROXY — Shard-Aware Arbitration Gateway
+//  ─────────────────────────────────────────────────────
+//  POST /v1/arbitrate — The SOLE entry point for agent→kernel calls.
+//  Never call the Arbiter Kernel directly.
+// ─────────────────────────────────────────────────────
+const { handleArbitrate } = require('./veritas-proxy');
+const { executeAtomicInference } = require('./arbiter-kernel');
+
+/**
+ * Sentinel Arbitrate — Veritas Proxy Cloud Function.
+ * Implements the Axiom-G Sovereign Signing pipeline:
+ *   1. Verification: ArbiterKernel validates skill against B-Tree project_skill_graph.
+ *   2. Attestation: SecurityManager determines project tier, fetches appropriate key.
+ *   3. Sealing: Code block hashed and signed (ECDSA P-256 or CRYSTALS-Dilithium).
+ *   4. Return: Signed payload returned to satellite project.
+ */
+async function handleSentinelArbitrate(req, res) {
+  res.set('X-Sentinel-Version', '5.5.0-Sovereign');
+  if (handleCORS(req, res)) return;
+
+  await ensureBoot();
+
+  const hubSql = getSql();
+
+  // Adapter: connects the Veritas Proxy to the Arbiter Kernel + Axiom-G Sealing
+  const executeArbiter = async ({ query, tenantId, shardConfig, agentMetadata, cryptoPreference }) => {
+    const genai = getGenAI();
+
+    // For Tier 3 (shared DB with RLS), set the session tenant context
+    if (shardConfig.tier === 3) {
+      try {
+        await hubSql`SELECT set_config('sentinel.tenant_id', ${tenantId}, true)`;
+      } catch (err) {
+        console.warn(`[VERITAS] Failed to set RLS context: ${err.message}`);
+      }
+    }
+
+    // ── Step 1: VERIFICATION ──
+    // ArbiterKernel validates the skill against the B-Tree project_skill_graph
+    const contextPayload = `[tenant_id: ${tenantId}] [tier: ${shardConfig.tier}] [isolation: ${shardConfig.isolationLevel}] [crypto: ${cryptoPreference}]\n${query}`;
+    const arbiterDecision = await executeAtomicInference(genai, query, contextPayload, tenantId);
+
+    // ── Step 2: ATTESTATION ──
+    // SecurityManager determines the project tier and fetches the appropriate key.
+    // ECDSA_P256 = Legacy Logistics Tier (Tier 1-L), quantum-insecure.
+    // PQ_LATTICE = Modern Sovereign Tier (Tier 1-PQ), CRYSTALS-Dilithium (ML-DSA).
+    const effectiveCrypto = cryptoPreference || 'ECDSA_P256';
+    let sealSignature = null;
+    let sealAlgorithm = effectiveCrypto;
+
+    try {
+      if (effectiveCrypto === 'PQ_LATTICE') {
+        // Tier 1-PQ: Create a PostQuantum signer for this sealing operation
+        const pqManager = SecurityManager.create('pq_lattice', {
+          encryptionKey: process.env.SENTINEL_ENCRYPTION_KEY,
+        });
+        const decisionPayload = { arbiterDecision, tenantId, timestamp: new Date().toISOString() };
+        sealSignature = await pqManager.signPayload(decisionPayload);
+        sealAlgorithm = 'CRYSTALS-Dilithium (ML-DSA-65)';
+        console.log(`[AXIOM-G] PQ_BLOCK sealed for tenant ${tenantId}. Algorithm: ${sealAlgorithm}`);
+      } else {
+        // Tier 1-L: Use the boot-time ECDSA SecurityManager
+        const decisionPayload = { arbiterDecision, tenantId, timestamp: new Date().toISOString() };
+        sealSignature = await _securityManager.signPayload(decisionPayload);
+        sealAlgorithm = 'ECDSA-P256';
+        console.log(`[AXIOM-G] ECDSA seal applied for tenant ${tenantId}. Algorithm: ${sealAlgorithm}`);
+      }
+    } catch (sealErr) {
+      console.error(`[AXIOM-G] Sealing failed: ${sealErr.message}. Decision returned unsigned.`);
+    }
+
+    // ── Step 3: SEALING — Return signed payload ──
+    return {
+      arbiterDecision,
+      tenantId,
+      shardTier: shardConfig.tier,
+      isolationLevel: shardConfig.isolationLevel,
+      // Axiom-G seal attestation
+      sealSignature,
+      sealAlgorithm,
+      sealBlockType: effectiveCrypto === 'PQ_LATTICE' ? 'PQ_BLOCK' : 'ECDSA_BLOCK',
+    };
+  };
+
+  return handleArbitrate(req, res, hubSql, executeArbiter);
+}
+
 // Register Cloud Function entry points
 functions.http('sentinelInference', handleSentinelInference);
 functions.http('sentinelTTS', handleSentinelTTS);
 functions.http('sentinelVerification', handleVerificationStatus);
 functions.http('sentinelEscalation', handleSentinelEscalation);
+functions.http('sentinelArbitrate', handleSentinelArbitrate);

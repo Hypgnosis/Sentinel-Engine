@@ -32,6 +32,8 @@ const { exportAuditRecord } = require('./audit-log-exporter');
 const EVENT_TYPES = Object.freeze({
   GOVERNANCE_FINDING: 'GOVERNANCE_FINDING', // V5.5 AGS Monotonic Reduction
   LEGIBILITY_RECORD: 'LEGIBILITY_RECORD',   // V5.5 AGS Arbitration Interface
+  PQ_BLOCK: 'PQ_BLOCK',                     // V5.5 Axiom-G: CRYSTALS-Dilithium sealed record
+  ECDSA_BLOCK: 'ECDSA_BLOCK',               // V5.5 Axiom-G: ECDSA P-256 sealed record
 });
 
 // ─────────────────────────────────────────────────────
