@@ -83,3 +83,15 @@ terraform/terraform.tfstate.backup
 # Cloud SQL Proxy binary
 cloud-sql-proxy.exe
 cloud-sql-proxy
+
+# Compiled Go binaries (sovereign-guard, bridge proxy, sidecar)
+sovereign-guard/sentinel-guard
+tests/bridge_test_proxy
+sidecar/sentinel-sidecar
+
+# K6 load test binaries (52-63MB each — use `npm i k6` or download at test time)
+tests/k6.exe
+tests/k6-linux
+
+# Large test result dumps (>50MB — regenerated on each crucible run)
+tests/crucible_full_results.json
