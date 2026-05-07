@@ -1,5 +1,5 @@
 /**
- * SENTINEL ENGINE V5.5 — Veritas Proxy (Shard-Aware API Gateway)
+ * SENTINEL ENGINE V5.5 — sovereign Proxy (Shard-Aware API Gateway)
  * ═══════════════════════════════════════════════════════════════════
  * The SOLE entry point for all agent-to-kernel communication.
  * Never call the Arbiter Kernel directly — all traffic flows
@@ -9,7 +9,7 @@
  *   1. Tenant Resolution → Shard Routing (via shard_map)
  *   2. Skill Admissibility Check (via project_skill_graph)
  *   3. Rate Limiting (per-tenant, tier-aware)
- *   4. Audit Logging (append-only veritas_audit_log)
+ *   4. Audit Logging (append-only sovereign_audit_log)
  *   5. Payload Fingerprinting (SHA-256, never stores raw payloads)
  *
  * V5.5 Hardening (Sovereign Sprint):
@@ -19,9 +19,9 @@
  *   - Blocking Audit: Tier 1 evidence writes are synchronous (non-repudiable)
  *
  * Architecture:
- *   Agent → Veritas Proxy → Shard Router → Arbiter Kernel → Spoke DB
+ *   Agent → sovereign Proxy → Shard Router → Arbiter Kernel → Spoke DB
  *
- * @module veritas-proxy
+ * @module sovereign-proxy
  * @version 5.5.0-Sovereign
  * ═══════════════════════════════════════════════════════════════════
  */
@@ -399,9 +399,9 @@ class TierRateLimiter {
 //  AUDIT LOGGER — Append-Only Governance Trail
 // ─────────────────────────────────────────────────────
 
-class VeritasAuditLogger {
+class sovereignAuditLogger {
   /**
-   * Log an arbitration decision to the veritas_audit_log.
+   * Log an arbitration decision to the sovereign_audit_log.
    * Append-only. Never update, never delete.
    *
    * TIER-AWARE BLOCKING POLICY:
@@ -417,7 +417,7 @@ class VeritasAuditLogger {
     const blocking = opts.blocking || (entry.resolvedTier === 1);
     const _write = async () => {
       await hubSql`
-        INSERT INTO veritas_audit_log (
+        INSERT INTO sovereign_audit_log (
           tenant_id, project_id, agent_role, agent_source,
           resolved_shard, resolved_tier,
           skill_name, skill_rank,
@@ -453,13 +453,13 @@ class VeritasAuditLogger {
       try {
         await _write();
       } catch (err) {
-        console.error(`[VERITAS_AUDIT_CRITICAL] BLOCKING audit write failed (Tier ${entry.resolvedTier}): ${err.message}`);
+        console.error(`[sovereign_AUDIT_CRITICAL] BLOCKING audit write failed (Tier ${entry.resolvedTier}): ${err.message}`);
         throw new Error(`AUDIT_INTEGRITY_FAILURE: Cannot guarantee non-repudiable evidence trail. ${err.message}`);
       }
     } else {
       // TIER 2/3: Fire-and-forget
       _write().catch(err => {
-        console.error(`[VERITAS_AUDIT_WARN] Non-blocking audit write failed: ${err.message}`);
+        console.error(`[sovereign_AUDIT_WARN] Non-blocking audit write failed: ${err.message}`);
       });
     }
   }
@@ -481,13 +481,13 @@ class ShardResolutionError extends Error {
 
 
 // ─────────────────────────────────────────────────────
-//  VERITAS PROXY — Main Handler
+//  sovereign PROXY — Main Handler
 // ─────────────────────────────────────────────────────
 
 const shardRouter = new ShardRouter();
 const skillGate = new SkillGate();
 const rateLimiter = new TierRateLimiter();
-const auditLogger = new VeritasAuditLogger();
+const auditLogger = new sovereignAuditLogger();
 const shardPool = new ShardConnectionPool();
 const dsnCache = new DsnDecryptionCache();
 const shardCircuitBreaker = new ShardCircuitBreaker();
@@ -509,31 +509,31 @@ const shardCircuitBreaker = new ShardCircuitBreaker();
  */
 function validateArbitratePayload(body) {
   if (!body || typeof body !== 'object') {
-    throw new Error('VERITAS_INVALID_PAYLOAD: Request body must be a JSON object.');
+    throw new Error('sovereign_INVALID_PAYLOAD: Request body must be a JSON object.');
   }
 
   const { tenant_id, agent_metadata, action_payload, skill_name, crypto_preference } = body;
 
   if (!tenant_id || typeof tenant_id !== 'string') {
-    throw new Error('VERITAS_MISSING_TENANT: tenant_id is required and must be a string.');
+    throw new Error('sovereign_MISSING_TENANT: tenant_id is required and must be a string.');
   }
 
   if (!agent_metadata || typeof agent_metadata !== 'object') {
-    throw new Error('VERITAS_MISSING_AGENT: agent_metadata is required and must be an object with { role, source }.');
+    throw new Error('sovereign_MISSING_AGENT: agent_metadata is required and must be an object with { role, source }.');
   }
 
   if (!agent_metadata.role || !agent_metadata.source) {
-    throw new Error('VERITAS_INCOMPLETE_AGENT: agent_metadata must contain both "role" and "source" fields.');
+    throw new Error('sovereign_INCOMPLETE_AGENT: agent_metadata must contain both "role" and "source" fields.');
   }
 
   if (!action_payload) {
-    throw new Error('VERITAS_MISSING_PAYLOAD: action_payload is required.');
+    throw new Error('sovereign_MISSING_PAYLOAD: action_payload is required.');
   }
 
   // Validate crypto_preference if provided
   const VALID_CRYPTO = ['ECDSA_P256', 'PQ_LATTICE'];
   if (crypto_preference && !VALID_CRYPTO.includes(crypto_preference)) {
-    throw new Error(`VERITAS_INVALID_CRYPTO: crypto_preference must be one of: ${VALID_CRYPTO.join(', ')}`);
+    throw new Error(`sovereign_INVALID_CRYPTO: crypto_preference must be one of: ${VALID_CRYPTO.join(', ')}`);
   }
 
   return {
@@ -550,7 +550,7 @@ function validateArbitratePayload(body) {
 
 /**
  * Compute SHA-256 fingerprint of a payload.
- * The Veritas Proxy NEVER stores raw payloads — only hashes.
+ * The sovereign Proxy NEVER stores raw payloads — only hashes.
  *
  * @param {string} payload
  * @returns {string} Hex-encoded SHA-256
@@ -560,7 +560,7 @@ function fingerprintPayload(payload) {
 }
 
 /**
- * POST /v1/arbitrate — The Veritas Proxy entry point.
+ * POST /v1/arbitrate — The sovereign Proxy entry point.
  *
  * Pipeline:
  *   1. Validate payload structure
@@ -603,7 +603,7 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
       auditLogger.log(hubSql, auditEntry).catch(() => {});
 
       return res.status(503).json({
-        code: 'VERITAS_SHARD_CIRCUIT_OPEN',
+        code: 'sovereign_SHARD_CIRCUIT_OPEN',
         message: 'Shard resolution circuit breaker is open. Retry after 30 seconds.',
         retryAfter: 30,
       });
@@ -649,7 +649,7 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
       await auditLogger.log(hubSql, auditEntry);
 
       return res.status(429).json({
-        code: 'VERITAS_RATE_LIMITED',
+        code: 'sovereign_RATE_LIMITED',
         message: `Rate limit exceeded. Limit: ${shardConfig.maxQueriesPerMinute}/min. Reset: ${new Date(rateResult.resetAt).toISOString()}`,
         retryAfter: Math.ceil((rateResult.resetAt - Date.now()) / 1000),
       });
@@ -668,7 +668,7 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
         await auditLogger.log(hubSql, auditEntry);
 
         return res.status(403).json({
-          code: 'VERITAS_SKILL_DENIED',
+          code: 'sovereign_SKILL_DENIED',
           message: `Skill "${skillName}" is denied for this project.`,
           reason: skillResult.reason,
           admissibility_rank: skillResult.rank,
@@ -678,7 +678,7 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
       if (skillResult.status === 'AUDIT_REQUIRED') {
         // For AUDIT_REQUIRED skills, we still route but flag for review
         auditEntry.decision = 'ESCALATED';
-        console.log(`[VERITAS] Skill "${skillName}" requires audit. Routing with escalation flag.`);
+        console.log(`[sovereign] Skill "${skillName}" requires audit. Routing with escalation flag.`);
       }
     }
 
@@ -708,19 +708,19 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
         try {
           dsn = decryptWithMasterKey(shardConfig.shardDsn);
           dsnCache.set(tenantId, dsn);
-          console.log(`[VERITAS] DSN rehydrated for tenant ${tenantId} (Tier ${shardConfig.tier})`);
+          console.log(`[sovereign] DSN rehydrated for tenant ${tenantId} (Tier ${shardConfig.tier})`);
         } catch (decryptErr) {
           // CRYPTO_FAULT: Master key missing or ciphertext corrupted.
           // This is FATAL for this request but should NOT trip the circuit breaker
           // (shard resolution succeeded — it's the DSN that's bad).
-          console.error(`[VERITAS_CRYPTO_FAULT] DSN decryption failed for tenant ${tenantId}: ${decryptErr.message}`);
+          console.error(`[sovereign_CRYPTO_FAULT] DSN decryption failed for tenant ${tenantId}: ${decryptErr.message}`);
           auditEntry.decision = 'DENIED';
           auditEntry.denialReason = `DSN_DECRYPT_FAILED: ${decryptErr.message}`;
           auditEntry.latencyMs = Date.now() - startTime;
           await auditLogger.log(hubSql, auditEntry);
 
           return res.status(500).json({
-            code: 'VERITAS_CRYPTO_FAULT',
+            code: 'sovereign_CRYPTO_FAULT',
             message: 'Shard connection unavailable. Contact infrastructure team.',
             // Deliberately vague — never expose crypto internals to callers
           });
@@ -730,7 +730,7 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
       // Acquire a persistent pooled connection from the decrypted DSN
       shardSql = shardPool.acquire(dsn);
     } else if (shardConfig.tier === 3) {
-      console.log(`[VERITAS] Tier 3 routing: Setting RLS context for tenant ${tenantId}`);
+      console.log(`[sovereign] Tier 3 routing: Setting RLS context for tenant ${tenantId}`);
     }
 
     const arbiterResult = await executeArbiter({
@@ -769,7 +769,7 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
 
   } catch (err) {
     const latencyMs = Date.now() - startTime;
-    console.error(`[VERITAS_ERROR] ${err.message}`);
+    console.error(`[sovereign_ERROR] ${err.message}`);
 
     // Attempt to log the failure
     if (auditEntry) {
@@ -780,9 +780,9 @@ async function handleArbitrate(req, res, hubSql, executeArbiter) {
     }
 
     // Determine HTTP status from error type
-    const isValidation = err.message.startsWith('VERITAS_');
+    const isValidation = err.message.startsWith('sovereign_');
     return res.status(isValidation ? 400 : 500).json({
-      code: isValidation ? err.message.split(':')[0] : 'VERITAS_INTERNAL_ERROR',
+      code: isValidation ? err.message.split(':')[0] : 'sovereign_INTERNAL_ERROR',
       message: err.message,
     });
   }
@@ -801,7 +801,7 @@ module.exports = {
   ShardRouter,
   SkillGate,
   TierRateLimiter,
-  VeritasAuditLogger,
+  sovereignAuditLogger,
   ShardResolutionError,
   ShardConnectionPool,
   DsnDecryptionCache,
